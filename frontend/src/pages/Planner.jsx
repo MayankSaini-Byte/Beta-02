@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api, { inr } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
@@ -12,6 +12,7 @@ const chipLabel = { full: 'Ready', partial: 'Partial', missing: 'To buy' };
 
 export default function Planner() {
   const { toast, t } = useApp();
+  const navigate = useNavigate();
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState('');
   const [swapFor, setSwapFor] = useState(null); // {date, slot, current}
@@ -46,6 +47,7 @@ export default function Planner() {
     const { data } = await api.post('/planner/order', {});
     if (!data.cart) return toast(data.message, 'ok');
     toast(`${data.cart.providerName} cart ready: ${inr(data.cart.total)} (cheapest of 4 stores)`, 'ok', 'Best-price cart');
+    navigate('/shopping');
   }, 'order');
 
   const setSlot = (date, slot, key) => act(async () => {
@@ -166,7 +168,7 @@ export default function Planner() {
             </div>
             {SLOTS.map((slot) => {
               const m = day.meals[slot];
-              if (!m) return <div key={slot} className="meal-slot-row"><span className="slot-tag">{t(slot)}</span><span className="small muted">Nothing planned</span></div>;
+              if (!m) return <div key={slot} className="meal-slot-row"><span className="slot-tag">{t(slot)}</span><span className="small muted" style={{ flex: 1 }}>Nothing planned</span>{!day.isPast && <button className="btn btn-sm" onClick={() => openSwap(day.date, slot, null)}><Icon name="plus" size={13} /> Add meal</button>}</div>;
               return (
                 <div key={slot} className="meal-slot-row">
                   <span className="slot-tag">{t(slot)}</span>
@@ -178,16 +180,16 @@ export default function Planner() {
                   <button className="btn btn-ghost btn-icon" title="Why this meal?" onClick={() => setShowWhy(showWhy === `${day.date}${slot}` ? null : `${day.date}${slot}`)}><Icon name="eye" size={14} /></button>
                   {!day.isPast && !m.done && (
                     <>
-                      <button className="btn btn-ghost btn-icon" title={m.locked ? 'Unlock' : 'Lock (keep on re-optimize)'} onClick={() => toggleLock(day.date, slot, m.locked)}>
+                      <button className="btn btn-ghost btn-icon" title={m.locked ? 'Unlock' : 'Lock (keep on re-optimize)'} onClick={() => toggleLock(day.date, slot, m.locked)} disabled={busy === `lock-${day.date}-${slot}`}>
                         <Icon name={m.locked ? 'lock' : 'unlock'} size={14} />
                       </button>
-                      <button className="btn btn-ghost btn-icon" title="Swap meal" onClick={() => openSwap(day.date, slot, m.key)}><Icon name="swap" size={14} /></button>
+                      <button className="btn btn-ghost btn-icon" title="Swap meal" onClick={() => openSwap(day.date, slot, m.key)} disabled={busy === `swap-${day.date}-${slot}`}><Icon name="swap" size={14} /></button>
                     </>
                   )}
                   {!day.isPast && (m.done ? (
-                    <button className="btn btn-sm" onClick={() => unmark(day.date, slot)} title="Undo - restore stock"><Icon name="undo" size={13} /> {t('undo')}</button>
+                    <button className="btn btn-sm" onClick={() => unmark(day.date, slot)} disabled={busy === `undo-${day.date}-${slot}`} title="Undo - restore stock"><Icon name="undo" size={13} /> {t('undo')}</button>
                   ) : (
-                    <button className="btn btn-sm btn-primary" onClick={() => markDone(day.date, slot)}><Icon name="check" size={13} /> {t('markDone')}</button>
+                    <button className="btn btn-sm btn-primary" onClick={() => markDone(day.date, slot)} disabled={busy === `done-${day.date}-${slot}`}><Icon name="check" size={13} /> {t('markDone')}</button>
                   ))}
                   <AnimatePresence>
                     {showWhy === `${day.date}${slot}` && (
@@ -237,7 +239,7 @@ export default function Planner() {
       )}
 
       {/* Swap modal */}
-      <Modal open={!!swapFor} onClose={() => setSwapFor(null)} title={`Swap ${swapFor ? swapFor.slot : ''}`}>
+      <Modal open={!!swapFor} onClose={() => setSwapFor(null)} title={`${swapFor && swapFor.current ? 'Swap' : 'Add'} ${swapFor ? swapFor.slot : ''}`}>
         {swapFor && (
           <div style={{ maxHeight: 420, overflowY: 'auto' }}>
             <div className="small muted mb-2">Pick any recipe - coverage is shown per your current stock.</div>

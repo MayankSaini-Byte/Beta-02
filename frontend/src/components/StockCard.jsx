@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
@@ -18,6 +18,10 @@ export default function StockCard({ item, index, onChanged, onDeleted }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ quantity: item.quantity, threshold: item.threshold, expiryDate: item.expiryDate || '' });
+
+  useEffect(() => {
+    if (editing) setForm({ quantity: item.quantity, threshold: item.threshold, expiryDate: item.expiryDate || '' });
+  }, [editing, item.quantity, item.threshold, item.expiryDate]);
 
   const pct = Math.min(100, item.capacity > 0 ? (item.quantity / item.capacity) * 100 : 0);
   const thrPct = Math.min(100, item.capacity > 0 ? (item.threshold / item.capacity) * 100 : 0);

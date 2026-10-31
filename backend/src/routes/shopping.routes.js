@@ -7,6 +7,7 @@ const { toCommercial, toBase, smartQty } = require('../utils/units');
 const { daysUntil } = require('../utils/dates');
 const { logActivity } = require('../services/activityService');
 const { decoratePlan } = require('../services/plannerService');
+const { getOrCreatePlan } = require('../services/mealPlanStore');
 
 const router = express.Router();
 router.use(auth);
@@ -23,7 +24,7 @@ function autoItems(pantryItems) {
   return pantryItems
     .filter((p) => p.quantity <= p.threshold)
     .map((p) => {
-      const suggested = Math.max(p.threshold * 2 - p.quantity, p.threshold);
+      const suggested = Math.max(p.threshold * 2 - p.quantity, p.threshold, p.unit === 'g' || p.unit === 'ml' ? 250 : 1);
       const comm = toCommercial(suggested, p.unit);
       const raw = basePriceFor(p.key, p.name) * comm.qty;
       return {
@@ -52,7 +53,8 @@ function mergeItems(items) {
       if ((i.toBuy || 0) > (prev.toBuy || 0)) {
         Object.assign(prev, { toBuy: i.toBuy, buyDisplay: i.buyDisplay, estCost: i.estCost });
       }
-      prev.sources = [...new Set([...(prev.sources || [prev.source]), i.source].filter(Boolean))];
+      prev.sources = [...new Set([...(prev.sources || [prev.source]), ...(i.sources || [i.source])].filter(Boolean))];
+      if (prev.done && !i.done) Object.assign(prev, { ...i, done: false });
       continue;
     }
     byKey.set(k, { ...i, sources: [i.source].filter(Boolean) });
@@ -66,12 +68,18 @@ router.get('/list', asyncH(async (req, res) => {
   const db = req.db;
   const pantryItems = await db.col('pantries').find({ ownerId: req.userId });
   const doc = await listDoc(db, req.userId);
+  const rawItems = doc.items || [];
+  const stableItems = rawItems.map((item) => ({ ...item, id: item.id || item._id || require('crypto').randomUUID() }));
+  if (stableItems.some((item, index) => item.id !== rawItems[index].id)) {
+    await db.col('shoppinglists').updateOne({ _id: doc._id }, { items: stableItems });
+    doc.items = stableItems;
+  }
 
   // Plan shortages: needs for today onwards (planner summary), excluding done meals
   let planNeeds = [];
   try {
     const user = await db.col('users').findOne({ _id: req.userId });
-    const plan = await db.col('mealplans').findOne({ ownerId: req.userId });
+    const plan = user ? await getOrCreatePlan(db, user) : null;
     if (user && plan) {
       const recipes = await db.col('recipes').find({});
       const decorated = decoratePlan(plan, user, pantryItems, recipes);
@@ -84,7 +92,7 @@ router.get('/list', asyncH(async (req, res) => {
 
   res.json({
     auto: autoItems(pantryItems),
-    saved: mergeItems(doc.items.map((i) => ({ ...i, id: i.id || i._id }))),
+    saved: mergeItems(doc.items),
     planNeeds,
     providers: PROVIDERS.map((p) => ({ id: p.id, name: p.name, color: p.color, etaMin: p.etaMin, fee: p.fee, freeAbove: p.freeAbove }))
   });
@@ -93,15 +101,18 @@ router.get('/list', asyncH(async (req, res) => {
 // POST /api/shopping/items { key?, name, qty, unit, source }
 router.post('/items', asyncH(async (req, res) => {
   const b = req.body || {};
-  if (!b.name) throw httpError(400, 'Item name is required');
+  if (!String(b.name || '').trim()) throw httpError(400, 'Item name is required');
   const cat = resolveCatalog(b.name);
   const doc = await listDoc(req.db, req.userId);
+  const requestedQty = b.qty === undefined ? null : Number(b.qty);
+  if (requestedQty !== null && (!Number.isFinite(requestedQty) || requestedQty <= 0)) throw httpError(400, 'Quantity must be greater than zero');
+  if (b.unit !== undefined && !['g', 'ml', 'pc', 'kg', 'l', 'L'].includes(b.unit)) throw httpError(400, 'Unit must be g, kg, ml, L, l, or pc');
   const item = {
-    id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    id: require('crypto').randomUUID(),
     key: b.key || (cat ? cat.key : null),
     name: cat ? cat.name : String(b.name).trim(),
     category: cat ? cat.category : 'other',
-    qty: Number(b.qty) || (cat ? cat.unit === 'g' ? 1000 : cat.unit === 'ml' ? 1000 : 1 : 1),
+    qty: requestedQty ?? (cat ? cat.unit === 'g' ? 1000 : cat.unit === 'ml' ? 1000 : 1 : 1),
     unit: b.unit || (cat ? cat.unit : 'g'),
     toBuy: Number(b.toBuy) || null,
     source: ['manual', 'plan', 'recipe', 'gym'].includes(b.source) ? b.source : 'manual',
@@ -118,8 +129,8 @@ router.post('/sync-plan', asyncH(async (req, res) => {
   const db = req.db;
   const user = await db.col('users').findOne({ _id: req.userId });
   const pantryItems = await db.col('pantries').find({ ownerId: req.userId });
-  const plan = await db.col('mealplans').findOne({ ownerId: req.userId });
-  if (!user || !plan) throw httpError(400, 'No plan found');
+  if (!user) throw httpError(401, 'User not found');
+  const plan = await getOrCreatePlan(db, user);
   const recipes = await db.col('recipes').find({});
   const decorated = decoratePlan(plan, user, pantryItems, recipes);
   const needs = decorated.summary.needs;
@@ -128,12 +139,12 @@ router.post('/sync-plan', asyncH(async (req, res) => {
   const items = [...(doc.items || [])];
   let added = 0, merged = 0;
   for (const n of needs) {
-    const existing = items.find((i) => i.key && i.key === n.key);
+    const existing = items.find((i) => i.key && i.key === n.key && !i.done);
     if (existing) {
       existing.toBuy = Math.max(existing.toBuy || 0, n.toBuy);
       existing.buyDisplay = n.buyDisplay;
       existing.estCost = Math.max(existing.estCost || 0, n.estCost);
-      existing.source = existing.source === 'manual' ? 'manual' : 'plan';
+      existing.source = existing.source || 'plan';
       existing.sources = [...new Set([...(existing.sources || [existing.source]), 'plan'])];
       merged++;
     } else {
@@ -155,9 +166,15 @@ router.post('/sync-plan', asyncH(async (req, res) => {
 // PATCH /api/shopping/items/:id { done }
 router.patch('/items/:id', asyncH(async (req, res) => {
   const doc = await listDoc(req.db, req.userId);
-  const items = (doc.items || []).map((i) => (i.id === req.params.id ? { ...i, done: !!(req.body || {}).done } : i));
+  let found = false;
+  const items = (doc.items || []).map((i) => {
+    if (i.id !== req.params.id) return i;
+    found = true;
+    return { ...i, done: !!(req.body || {}).done };
+  });
+  if (!found) throw httpError(404, 'List item not found');
   await req.db.col('shoppinglists').updateOne({ _id: doc._id }, { items });
-  res.json({ ok: true });
+  res.json({ ok: true, item: items.find((i) => i.id === req.params.id) });
 }));
 
 // POST /api/shopping/items/:id/bought - "Mark bought" -> adds to kitchen stock
@@ -166,6 +183,7 @@ router.post('/items/:id/bought', asyncH(async (req, res) => {
   const doc = await listDoc(db, req.userId);
   const item = (doc.items || []).find((i) => i.id === req.params.id);
   if (!item) throw httpError(404, 'List item not found');
+  if (item.done) throw httpError(409, 'This item is already marked bought');
 
   const pantries = db.col('pantries');
   const auditlogs = db.col('auditlogs');
@@ -221,7 +239,9 @@ router.post('/items/:id/bought', asyncH(async (req, res) => {
 // DELETE /api/shopping/items/:id
 router.delete('/items/:id', asyncH(async (req, res) => {
   const doc = await listDoc(req.db, req.userId);
-  const items = (doc.items || []).filter((i) => i.id !== req.params.id);
+  const before = doc.items || [];
+  const items = before.filter((i) => i.id !== req.params.id);
+  if (items.length === before.length) throw httpError(404, 'List item not found');
   await req.db.col('shoppinglists').updateOne({ _id: doc._id }, { items });
   res.json({ ok: true });
 }));

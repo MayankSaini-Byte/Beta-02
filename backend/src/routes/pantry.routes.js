@@ -74,7 +74,7 @@ router.post('/', asyncH(async (req, res) => {
   const quantity = Math.max(0, Number(b.quantity) || 0);
   const unit = b.unit || (cat ? cat.unit : 'g');
   const threshold = b.threshold != null ? Math.max(0, Number(b.threshold)) : existing ? existing.threshold : Math.max(1, Math.round(quantity * 0.25));
-  const expiryDate = b.expiryDate || (cat ? addDaysISO(todayISO(), cat.shelfLifeDays) : addDaysISO(todayISO(), 7));
+  const expiryDate = b.expiryDate || (existing && existing.expiryDate) || (cat ? addDaysISO(todayISO(), cat.shelfLifeDays) : addDaysISO(todayISO(), 7));
 
   if (existing) {
     const mode = b.mode === 'set' ? 'set' : 'add';
@@ -109,6 +109,9 @@ router.patch('/:id', asyncH(async (req, res) => {
   const patch = { updatedAt: new Date().toISOString() };
   const b = req.body || {};
   for (const f of ['name', 'category', 'unit', 'expiryDate']) if (b[f] !== undefined) patch[f] = b[f];
+  if (b.name !== undefined && !String(b.name).trim()) throw httpError(400, 'Item name cannot be empty');
+  if (b.unit !== undefined && !['g', 'ml', 'pc'].includes(b.unit)) throw httpError(400, 'Unit must be g, ml, or pc');
+  if (b.expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(b.expiryDate)) throw httpError(400, 'Expiry date must be YYYY-MM-DD');
   if (b.quantity !== undefined) patch.quantity = Math.max(0, Number(b.quantity) || 0);
   if (b.threshold !== undefined) patch.threshold = Math.max(0, Number(b.threshold) || 0);
   const updated = await req.db.col('pantries').updateOne({ _id: req.params.id, ownerId: req.userId }, patch);
@@ -119,6 +122,7 @@ router.patch('/:id', asyncH(async (req, res) => {
 // DELETE /api/pantry/:id
 router.delete('/:id', asyncH(async (req, res) => {
   const item = await req.db.col('pantries').findOne({ _id: req.params.id, ownerId: req.userId });
+  if (!item) throw httpError(404, 'Item not found');
   await req.db.col('pantries').deleteOne({ _id: req.params.id, ownerId: req.userId });
   if (item) await logActivity(req.db, req.userId, { action: 'removed', target: item.name, detail: 'Deleted from stock', icon: 'trash' });
   res.json({ ok: true });
@@ -129,7 +133,8 @@ router.post('/:id/adjust', asyncH(async (req, res) => {
   const pantries = req.db.col('pantries');
   const item = await pantries.findOne({ _id: req.params.id, ownerId: req.userId });
   if (!item) throw httpError(404, 'Item not found');
-  const delta = Number((req.body || {}).delta) || 0;
+  const delta = Number((req.body || {}).delta);
+  if (!Number.isFinite(delta) || delta === 0) throw httpError(400, 'A non-zero numeric delta is required');
   const reason = (req.body || {}).reason || 'manual update';
   const next = Math.max(0, item.quantity + delta);
   const updated = await pantries.updateOne({ _id: item._id }, { quantity: next, updatedAt: new Date().toISOString() });

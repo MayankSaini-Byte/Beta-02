@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import api, { inr } from '../api/client.js';
+import api, { inr, downloadInventoryCsv } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import Icon from '../components/Icon.jsx';
 import StatCard from '../components/StatCard.jsx';
@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [busySlot, setBusySlot] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = async () => {
     const [d1, d2] = await Promise.all([api.get('/dashboard'), api.get('/pantry')]);
@@ -29,6 +30,13 @@ export default function Dashboard() {
   };
 
   useEffect(() => { load().catch(() => toast('Could not load kitchen stock', 'err')); }, []);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try { await downloadInventoryCsv(); toast('Inventory CSV downloaded', 'ok'); }
+    catch (e) { toast(e.response?.data?.error || 'Could not export inventory', 'err'); }
+    setExporting(false);
+  };
 
   const markDone = async (slot) => {
     if (!dash?.planKey) return;
@@ -199,7 +207,7 @@ export default function Dashboard() {
             <input className="input" placeholder={t('search')} value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 34 }} />
             <Icon name="search" size={15} style={{ position: 'absolute', left: 11, top: 12, color: 'var(--faint)' }} />
           </div>
-          <button className="btn" onClick={() => window.open('/api/pantry/export', '_blank')} title="Download CSV">
+          <button className="btn" onClick={exportCsv} disabled={exporting} title="Download CSV">
             <Icon name="upload" /> CSV
           </button>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import api, { inr } from '../api/client.js';
+import api, { inr, copyText } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -17,6 +17,7 @@ export default function Shopping() {
   const [itemRates, setItemRates] = useState(false);
   const [handoff, setHandoff] = useState(null);
   const [handoffBusy, setHandoffBusy] = useState('');
+  const [busyItem, setBusyItem] = useState('');
 
   const load = async () => {
     const { data } = await api.get('/shopping/list');
@@ -91,21 +92,27 @@ export default function Shopping() {
   };
 
   const markBought = async (item) => {
+    setBusyItem(item.id);
     try {
       const { data } = await api.post(`/shopping/items/${item.id}/bought`);
       toast(data.message, 'ok', 'Bought');
-      load();
+      await load();
     } catch (e) { toast(e.response?.data?.error || 'Could not update stock', 'err'); }
+    setBusyItem('');
   };
 
   const removeItem = async (item) => {
-    await api.delete(`/shopping/items/${item.id}`);
-    load();
+    setBusyItem(item.id);
+    try { await api.delete(`/shopping/items/${item.id}`); await load(); toast(`${item.name} removed`, 'ok'); }
+    catch (e) { toast(e.response?.data?.error || 'Could not remove item', 'err'); }
+    setBusyItem('');
   };
 
   const toggleDone = async (item) => {
-    await api.patch(`/shopping/items/${item.id}`, { done: !item.done });
-    load();
+    setBusyItem(item.id);
+    try { await api.patch(`/shopping/items/${item.id}`, { done: !item.done }); await load(); }
+    catch (e) { toast(e.response?.data?.error || 'Could not update item', 'err'); }
+    setBusyItem('');
   };
 
   const syncPlan = async () => {
@@ -117,17 +124,19 @@ export default function Shopping() {
   };
 
   const doShare = async () => {
+    const tab = window.open('about:blank', '_blank');
     try {
       const { data } = await api.post('/shopping/share');
-      window.open(data.whatsappUrl, '_blank');
-    } catch { toast('Could not build share text', 'err'); }
+      if (tab) tab.location.href = data.whatsappUrl;
+      else window.location.href = data.whatsappUrl;
+    } catch { if (tab) tab.close(); toast('Could not build share text', 'err'); }
   };
 
   const doCopy = async () => {
     try {
       const { data } = await api.post('/shopping/share');
       setShareText(data.text);
-      await navigator.clipboard.writeText(data.text);
+      await copyText(data.text);
       toast('List copied to clipboard', 'ok');
     } catch { toast('Could not copy', 'err'); }
   };
@@ -150,7 +159,7 @@ export default function Shopping() {
   const copyHandoff = async () => {
     if (!handoff) return;
     try {
-      await navigator.clipboard.writeText(handoff.listText);
+      await copyText(handoff.listText);
       toast('List copied - paste it in the store app chat/search', 'ok');
     } catch { toast('Could not copy', 'err'); }
   };
@@ -249,21 +258,21 @@ export default function Shopping() {
         {totalSaved === 0 && <div className="small muted">List is empty - sync plan shortages or add items above.</div>}
 
         {Object.entries(grouped).map(([cat, items]) => {
-          const active = items.filter((i) => !i.done);
-          if (!active.length) return null;
+          if (!items.length) return null;
           return (
             <div key={cat} style={{ marginBottom: 12 }}>
               <div className="meal-slot" style={{ marginBottom: 4 }}>{cat.replace('-', ' ')}</div>
-              {active.map((i) => (
+              {items.map((i) => (
                 <div key={i.id} className="member-row">
-                  <input type="checkbox" checked={!!i.done} onChange={() => toggleDone(i)} style={{ width: 17, height: 17 }} aria-label={`Mark ${i.name}`} />
+                  <input type="checkbox" checked={!!i.done} disabled={busyItem === i.id || !!i.boughtAt} onChange={() => toggleDone(i)} style={{ width: 17, height: 17 }} aria-label={`Mark ${i.name}`} />
                   <div style={{ flex: 1 }}>
-                    <b style={{ fontSize: 13.5 }}>{i.name}</b>
+                    <b style={{ fontSize: 13.5, textDecoration: i.done ? 'line-through' : 'none', opacity: i.done ? 0.65 : 1 }}>{i.name}</b>
+                    {i.boughtAt && <span className="chip chip-ok" style={{ marginLeft: 6 }}>Added to kitchen</span>}
                     {(i.sources || [i.source]).map((s) => <span key={s} className="chip" style={{ marginLeft: 6, fontSize: 10 }}>{s}</span>)}
                     <div className="small muted mt-1">{i.toBuy ? i.buyDisplay || `${i.toBuy} ${i.unit}` : ''} {i.estCost ? `· ~${inr(i.estCost)}` : ''}</div>
                   </div>
-                  <button className="btn btn-sm btn-primary" onClick={() => markBought(i)} title="Add to kitchen stock"><Icon name="check" size={13} /> {t('markBought')}</button>
-                  <button className="btn btn-ghost btn-icon" onClick={() => removeItem(i)} title="Remove"><Icon name="trash" size={14} /></button>
+                  <button className="btn btn-sm btn-primary" onClick={() => markBought(i)} disabled={busyItem === i.id || i.done} title="Add to kitchen stock"><Icon name="check" size={13} /> {i.boughtAt ? 'Added' : t('markBought')}</button>
+                  <button className="btn btn-ghost btn-icon" onClick={() => removeItem(i)} disabled={busyItem === i.id} title="Remove"><Icon name="trash" size={14} /></button>
                 </div>
               ))}
             </div>

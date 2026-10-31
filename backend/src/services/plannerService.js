@@ -39,13 +39,13 @@ function generateWeek({ user, pantryItems, recipes, startISO, days = 7, existing
   const usedCount = new Map();
   const seedBase = `${user._id}|${startISO}`;
 
-  // Locked slots, by date: { slot: recipeKey }
+  // Locked and completed slots, by date: { slot: recipeKey }
   const locked = new Map();
   if (existingPlan && Array.isArray(existingPlan.days)) {
     for (const d of existingPlan.days) {
       for (const slot of SLOTS) {
         const m = d.meals && d.meals[slot];
-        if (m && m.locked && m.key) {
+        if (m && (m.locked || m.done) && m.key) {
           if (!locked.has(d.date)) locked.set(d.date, {});
           locked.get(d.date)[slot] = m.key;
         }
@@ -69,11 +69,16 @@ function generateWeek({ user, pantryItems, recipes, startISO, days = 7, existing
         const r = recipes.find((x) => x.key === lockedKey);
         if (r) {
           usedCount.set(r.key, (usedCount.get(r.key) || 0) + 1);
-          for (const ing of r.ingredients) {
-            const cur = stock.get(ing.key);
-            if (cur) cur.qty = Math.max(0, cur.qty - toBase(ing.qty, ing.unit));
+          const previous = existingPlan.days.find((d) => d.date === date)?.meals?.[slot];
+          meals[slot] = previous && previous.done
+            ? { ...previous, key: r.key, locked: !!previous.locked }
+            : { key: r.key, locked: true, done: false };
+          if (!previous?.done) {
+            for (const ing of r.ingredients) {
+              const cur = stock.get(ing.key);
+              if (cur) cur.qty = Math.max(0, cur.qty - toBase(ing.qty, ing.unit));
+            }
           }
-          meals[slot] = { key: r.key, locked: true };
           continue;
         }
       }

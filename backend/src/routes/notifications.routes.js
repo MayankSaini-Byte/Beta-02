@@ -2,8 +2,8 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const { asyncH } = require('../middleware/errors');
 const { daysUntil } = require('../utils/dates');
-const { generateWeek, decoratePlan } = require('../services/plannerService');
-const { weekStartISO } = require('../utils/dates');
+const { decoratePlan } = require('../services/plannerService');
+const { getOrCreatePlan } = require('../services/mealPlanStore');
 
 const router = express.Router();
 router.use(auth);
@@ -32,17 +32,7 @@ router.get('/', asyncH(async (req, res) => {
 
   // Pre-meal alert with actual ingredient names: "Dinner: missing paneer"
   try {
-    let plan = await db.col('mealplans').findOne({ ownerId: user._id });
-    if (!plan) {
-      const pantryItems0 = await db.col('pantries').find({ ownerId: user._id });
-      const recipes0 = await db.col('recipes').find({});
-      const { generateWeek: genWeek, todayISO: tISO } = require('../services/plannerService');
-      const { todayISO: nowISO } = require('../utils/dates');
-      plan = await db.col('mealplans').insertOne({
-        ownerId: user._id,
-        ...genWeek({ user, pantryItems: pantryItems0, recipes: recipes0, startISO: nowISO(), days: 7 })
-      });
-    }
+    const plan = await getOrCreatePlan(db, user);
     const pantryItems = await db.col('pantries').find({ ownerId: user._id });
     const recipes = await db.col('recipes').find({});
     const decorated = decoratePlan(plan, user, pantryItems, recipes);

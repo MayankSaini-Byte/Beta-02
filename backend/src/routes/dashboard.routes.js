@@ -5,8 +5,9 @@
  */
 const express = require('express');
 const auth = require('../middleware/auth');
-const { asyncH } = require('../middleware/errors');
-const { decoratePlan, computeDeductions } = require('../services/plannerService');
+const { asyncH, httpError } = require('../middleware/errors');
+const { decoratePlan } = require('../services/plannerService');
+const { getOrCreatePlan } = require('../services/mealPlanStore');
 const { portionFactor } = require('../services/availabilityService');
 const { todayISO } = require('../utils/dates');
 const { toCommercial } = require('../utils/units');
@@ -19,18 +20,13 @@ router.use(auth);
 router.get('/', asyncH(async (req, res) => {
   const db = req.db;
   const user = await db.col('users').findOne({ _id: req.userId });
-  if (!user) return res.json({ error: 'no user' });
+  if (!user) throw httpError(401, 'User not found');
 
   const pantryItems = await db.col('pantries').find({ ownerId: req.userId });
   const recipes = await db.col('recipes').find({});
 
-  // plan (auto-create on first dashboard visit)
-  let plan = await db.col('mealplans').findOne({ ownerId: req.userId });
-  if (!plan) {
-    const { generateWeek } = require('../services/plannerService');
-    const generated = generateWeek({ user, pantryItems, recipes, startISO: todayISO(), days: 7 });
-    plan = await db.col('mealplans').insertOne({ ownerId: req.userId, ...generated });
-  }
+  // Keep dashboard aligned with the same current week as the planner.
+  const plan = await getOrCreatePlan(db, user);
   const decorated = decoratePlan(plan, user, pantryItems, recipes);
   const today = todayISO();
   const todayPlan = decorated.days.find((d) => d.date === today);

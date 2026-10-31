@@ -123,14 +123,17 @@ class FileCollection {
     return out.map(clone);
   }
 
-  async findOne(filter = {}) {
-    const doc = this.docs.find((d) => matches(d, filter));
+  async findOne(filter = {}, opts = {}) {
+    let candidates = this.docs.filter((d) => matches(d, filter));
+    if (opts.sort) candidates = sortDocs([...candidates], opts.sort);
+    const doc = candidates[0];
     return clone(doc || null);
   }
 
   async insertOne(doc) {
     const now = new Date().toISOString();
-    const record = { _id: doc._id ? String(doc._id) : rid(), createdAt: doc.createdAt || now, updatedAt: doc.updatedAt || now, ...clone(doc), _id: doc._id ? String(doc._id) : rid() };
+    const id = doc._id ? String(doc._id) : rid();
+    const record = { createdAt: doc.createdAt || now, updatedAt: doc.updatedAt || now, ...clone(doc), _id: id };
     this.docs.push(record);
     scheduleSave();
     return clone(record);

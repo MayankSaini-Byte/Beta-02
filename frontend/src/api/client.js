@@ -32,6 +32,32 @@ api.interceptors.response.use(
   }
 );
 
+export async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.appendChild(field);
+  field.select();
+  const ok = document.execCommand('copy');
+  field.remove();
+  if (!ok) throw new Error('Clipboard access is unavailable');
+}
+
+export async function downloadInventoryCsv() {
+  const { data } = await api.get('/pantry/export', { responseType: 'blob' });
+  const url = URL.createObjectURL(data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'kitchensync-inventory.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const errMsg = (e) => (e && e.response && e.response.data && e.response.data.error) || (e && e.message) || 'Something went wrong';
 
 export const inr = (n) => `\u20B9${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;

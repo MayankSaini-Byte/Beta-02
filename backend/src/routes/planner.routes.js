@@ -1,42 +1,19 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const { asyncH, httpError } = require('../middleware/errors');
-const { generateWeek, decoratePlan, computeDeductions, SLOTS } = require('../services/plannerService');
+const { decoratePlan, computeDeductions, SLOTS } = require('../services/plannerService');
+const { getOrCreatePlan } = require('../services/mealPlanStore');
 const { compareBasket } = require('../services/priceService');
 const { logActivity } = require('../services/activityService');
-const { todayISO } = require('../utils/dates');
 const { toBase } = require('../utils/units');
 
 const router = express.Router();
 router.use(auth);
 
-async function loadRecipes(db) {
-  return db.col('recipes').find({});
-}
-
 async function loadCtx(db, user) {
   const pantryItems = await db.col('pantries').find({ ownerId: user._id });
-  const recipes = await loadRecipes(db);
+  const recipes = await db.col('recipes').find({});
   return { pantryItems, recipes };
-}
-
-/**
- * Plan storage model: ONE plan per user (rolling week starting today).
- * getPlan returns the user's current plan; generate always plans from TODAY.
- */
-async function getOrCreatePlan(db, user, force = false) {
-  const plans = db.col('mealplans');
-  let plan = await plans.findOne({ ownerId: user._id });
-  if (!plan || force) {
-    const { pantryItems, recipes } = await loadCtx(db, user);
-    const generated = generateWeek({
-      user, pantryItems, recipes, startISO: todayISO(), days: 7,
-      existingPlan: force ? plan : null
-    });
-    if (plan) await plans.updateOne({ _id: plan._id }, generated);
-    else plan = await plans.insertOne({ ownerId: user._id, ...generated });
-  }
-  return plan;
 }
 
 // GET /api/planner - the rolling week (auto-generates on first visit)
@@ -53,6 +30,7 @@ router.get('/', asyncH(async (req, res) => {
 router.post('/generate', asyncH(async (req, res) => {
   const db = req.db;
   const user = await db.col('users').findOne({ _id: req.userId });
+  if (!user) throw httpError(401, 'User not found');
   const plan = await getOrCreatePlan(db, user, true);
   const { pantryItems, recipes } = await loadCtx(db, user);
   await logActivity(db, user._id, { action: 'planned', target: 'This week', detail: 'Re-optimized the weekly plan', icon: 'calendar' });
@@ -64,6 +42,7 @@ router.put('/slot', asyncH(async (req, res) => {
   const db = req.db;
   const { date, slot, key } = req.body || {};
   if (!date || !slot) throw httpError(400, 'date and slot are required');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) throw httpError(400, 'date must be a valid YYYY-MM-DD date');
   if (!SLOTS.includes(slot)) throw httpError(400, `slot must be one of ${SLOTS.join(', ')}`);
   const user = await db.col('users').findOne({ _id: req.userId });
   const plan = await getOrCreatePlan(db, user);
@@ -73,6 +52,9 @@ router.put('/slot', asyncH(async (req, res) => {
     if (!recipe) throw httpError(404, `Recipe not found: ${key}`);
   }
 
+  const targetDay = plan.days.find((d) => d.date === date);
+  if (!targetDay) throw httpError(404, `No planned day on ${date}`);
+  if (targetDay.meals && targetDay.meals[slot] && targetDay.meals[slot].done) throw httpError(409, 'Undo the cooked meal before changing this slot');
   const days = plan.days.map((d) => {
     if (d.date !== date) return d;
     const meals = { ...(d.meals || {}) };
@@ -92,8 +74,11 @@ router.post('/lock', asyncH(async (req, res) => {
   const db = req.db;
   const { date, slot, locked } = req.body || {};
   if (!date || !slot) throw httpError(400, 'date and slot are required');
+  if (!SLOTS.includes(slot)) throw httpError(400, `slot must be one of ${SLOTS.join(', ')}`);
   const user = await db.col('users').findOne({ _id: req.userId });
+  if (!user) throw httpError(401, 'User not found');
   const plan = await getOrCreatePlan(db, user);
+  if (!plan.days.some((d) => d.date === date && d.meals && d.meals[slot])) throw httpError(404, `No ${slot} planned on ${date}`);
   const days = plan.days.map((d) => {
     if (d.date !== date || !d.meals || !d.meals[slot]) return d;
     const meals = { ...d.meals, [slot]: { ...d.meals[slot], locked: !!locked } };
@@ -114,6 +99,9 @@ router.post('/copy-day', asyncH(async (req, res) => {
   const plan = await getOrCreatePlan(db, user);
   const fromDay = plan.days.find((d) => d.date === from);
   if (!fromDay) throw httpError(404, `No planned day on ${from}`);
+  const targetDay = plan.days.find((d) => d.date === to);
+  if (!targetDay) throw httpError(404, `No planned day on ${to}`);
+  if (SLOTS.some((slot) => targetDay.meals && targetDay.meals[slot] && targetDay.meals[slot].done)) throw httpError(409, 'Undo cooked meals before replacing this day');
   const days = plan.days.map((d) => {
     if (d.date !== to) return d;
     const meals = {};
@@ -137,7 +125,9 @@ router.post('/mark-done', asyncH(async (req, res) => {
   const db = req.db;
   const { date, slot } = req.body || {};
   if (!date || !slot) throw httpError(400, 'date and slot are required');
+  if (!SLOTS.includes(slot)) throw httpError(400, `slot must be one of ${SLOTS.join(', ')}`);
   const user = await db.col('users').findOne({ _id: req.userId });
+  if (!user) throw httpError(401, 'User not found');
   const plan = await getOrCreatePlan(db, user);
   const dayIdx = plan.days.findIndex((d) => d.date === date);
   if (dayIdx < 0) throw httpError(404, `No planned day on ${date}`);
@@ -146,7 +136,8 @@ router.post('/mark-done', asyncH(async (req, res) => {
   if (!meal || !meal.key) throw httpError(404, `No ${slot} planned on ${date}`);
 
   if (meal.done) {
-    return res.json({ alreadyDone: true, deductions: meal.deductions || [], shortfall: meal.shortfall || [], message: 'Already marked done - nothing deducted twice.' });
+    const { pantryItems, recipes } = await loadCtx(db, user);
+    return res.json({ alreadyDone: true, deductions: meal.deductions || [], shortfall: meal.shortfall || [], message: 'Already marked done - nothing deducted twice.', plan: decoratePlan(plan, user, pantryItems, recipes) });
   }
 
   const recipe = await db.col('recipes').findOne({ key: meal.key });
@@ -206,7 +197,9 @@ router.post('/unmark', asyncH(async (req, res) => {
   const db = req.db;
   const { date, slot } = req.body || {};
   if (!date || !slot) throw httpError(400, 'date and slot are required');
+  if (!SLOTS.includes(slot)) throw httpError(400, `slot must be one of ${SLOTS.join(', ')}`);
   const user = await db.col('users').findOne({ _id: req.userId });
+  if (!user) throw httpError(401, 'User not found');
   const plan = await getOrCreatePlan(db, user);
   const day = plan.days.find((d) => d.date === date);
   const meal = day && day.meals && day.meals[slot];
@@ -260,7 +253,7 @@ router.post('/sync-shopping', asyncH(async (req, res) => {
   let added = 0;
   let merged = 0;
   for (const n of needs) {
-    const existing = items.find((i) => i.key && i.key === n.key && i.source === 'plan');
+    const existing = items.find((i) => i.key && i.key === n.key && !i.done);
     if (existing) {
       existing.toBuy = Math.max(existing.toBuy || 0, n.toBuy);
       existing.qty = n.have;
@@ -270,7 +263,7 @@ router.post('/sync-shopping', asyncH(async (req, res) => {
       merged++;
     } else {
       items.push({
-        id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}-${n.key}`,
+        id: require('crypto').randomUUID(),
         key: n.key,
         name: n.name,
         qty: n.have,

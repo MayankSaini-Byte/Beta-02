@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import api, { errMsg, inr } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import Icon from '../components/Icon.jsx';
 import CoverageRing from '../components/CoverageRing.jsx';
 import Modal from '../components/Modal.jsx';
+
+const displayQty = (qty, unit) => {
+  if (unit === 'g' && qty >= 1000) return `${Math.round(qty / 10) / 100} kg`;
+  if (unit === 'ml' && qty >= 1000) return `${Math.round(qty / 10) / 100} L`;
+  return `${Math.round(qty * 100) / 100} ${unit}`;
+};
 
 const statusStyle = {
   have: { bg: 'rgba(52,211,153,0.14)', color: 'var(--accent)', icon: 'check' },
@@ -14,6 +20,7 @@ const statusStyle = {
 
 export default function RecipeDetail() {
   const { key } = useParams();
+  const navigate = useNavigate();
   const { toast, user } = useApp();
   const [data, setData] = useState(null);
   const [scale, setScale] = useState(1); // multiplier relative to household default
@@ -35,8 +42,17 @@ export default function RecipeDetail() {
   if (!data) return <div className="skeleton" style={{ height: 320 }} />;
 
   const { recipe, ingredients, availability, servings } = data;
-  const factor = servings.factor * scale;
-  const missing = availability.missingKeys;
+  const adjustedIngredients = ingredients.map((ing) => {
+    const need = ing.need * scale;
+    const status = ing.have >= need ? 'have' : ing.have > 0 ? 'partial' : 'missing';
+    return { ...ing, need, status, needDisplay: displayQty(need, ing.unit) };
+  });
+  const adjustedCoverage = adjustedIngredients.length
+    ? Math.round(adjustedIngredients.reduce((sum, ing) => sum + Math.min(1, ing.need > 0 ? ing.have / ing.need : 1), 0) / adjustedIngredients.length * 100)
+    : 0;
+  const missing = adjustedIngredients.filter((ing) => ing.status !== 'have').map((ing) => ({
+    ...ing, need: ing.need, have: ing.have, alternate: ing.alternate
+  }));
 
   const toggleFav = async () => {
     setFavBusy(true);
@@ -69,8 +85,9 @@ export default function RecipeDetail() {
         return;
       }
       await api.post('/shopping/cart', { providerId: cmp.bestProvider.id, items });
-      toast(`Cart ready on ${cmp.bestProvider.name} for ${inr(cmp.bestProvider.total)} - checkout from Shopping page`, 'ok', 'Best price picked');
+      toast(`Cart ready on ${cmp.bestProvider.name} - opening your shopping cart`, 'ok', 'Best price picked');
       setSwapOpen(false);
+      navigate('/shopping');
     } catch (e) { toast(errMsg(e), 'err'); }
     setOrdering(false);
   };
@@ -118,13 +135,13 @@ export default function RecipeDetail() {
           <div className="card">
             <div className="flex-between mb-1">
               <h3 style={{ fontSize: 15 }}>Ingredients checklist</h3>
-              <CoverageRing value={availability.coverage} />
+              <CoverageRing value={adjustedCoverage} />
             </div>
             <p className="tiny muted mb-2">
-              Scaled for your household: {servings.household.adults} adult(s) + {servings.household.children} child(ren) = {servings.forHousehold} servings
+              Scaled for your household: {servings.household.adults} adult(s) + {servings.household.children} child(ren) = {(servings.forHousehold * scale).toFixed(1).replace(/\.0$/, '')} servings
               {scale !== 1 && <> · adjusted ×{scale}</>}
             </p>
-            {ingredients.map((ing) => {
+            {adjustedIngredients.map((ing) => {
               const st = statusStyle[ing.status];
               return (
                 <div className="ing-row" key={ing.key}>
@@ -170,10 +187,10 @@ export default function RecipeDetail() {
             </div>
 
             <div className="small mb-2" style={{ lineHeight: 1.6 }}>
-              {availability.missingCount === 0 ? (
+              {missing.length === 0 ? (
                 <span style={{ color: 'var(--accent)' }}><b>Everything is in your kitchen.</b> Time to cook!</span>
               ) : (
-                <span className="muted"><b style={{ color: 'var(--amber)' }}>{availability.missingCount} ingredient(s) missing</b> - alternatives are suggested above.</span>
+                <span className="muted"><b style={{ color: 'var(--amber)' }}>{missing.length} ingredient(s) missing</b> - alternatives are suggested above.</span>
               )}
             </div>
 
@@ -195,7 +212,7 @@ export default function RecipeDetail() {
         {missing.map((m) => (
           <div key={m.key} className="quote-row">
             <Icon name="box" size={13} /> <b>{m.name}</b>
-            <span className="muted small" style={{ marginLeft: 'auto' }}>{Math.max(0, Math.round((m.need - m.have) / (m.unit === 'g' || m.unit === 'ml' ? 1000 : 1) * 100) / 100) || 1} {m.unit === 'g' || m.unit === 'ml' ? (m.unit === 'g' ? 'kg' : 'L') : 'pc'}</span>
+            <span className="muted small" style={{ marginLeft: 'auto' }}>{displayQty(Math.max(0, m.need - m.have), m.unit)}</span>
           </div>
         ))}
         <button className="btn btn-primary btn-block mt-2" onClick={orderMissingNow} disabled={ordering}>

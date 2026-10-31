@@ -65,7 +65,7 @@ router.get('/', asyncH(async (req, res) => {
 // POST /api/devices { name, pantryItemId? } - pair a new container
 router.post('/', asyncH(async (req, res) => {
   const b = req.body || {};
-  if (!b.name) throw httpError(400, 'Device name is required');
+  if (!String(b.name || '').trim()) throw httpError(400, 'Device name is required');
   let linkedKey = null;
   if (b.pantryItemId) {
     const item = await req.db.col('pantries').findOne({ _id: b.pantryItemId, ownerId: req.userId });

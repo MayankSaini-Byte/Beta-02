@@ -127,6 +127,14 @@ function AddRecipeModal({ open, onClose, onAdded }) {
   const [estimated, setEstimated] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (open) {
+      setForm({ name: '', cuisine: 'Home Kitchen', diet: 'veg', meal: ['lunch'], timeMin: 30, servings: 2, kcal: 300, steps: [''] });
+      setIngs([{ name: '' }]);
+      setEstimated(false);
+    }
+  }, [open]);
+
   const estimate = async () => {
     if (!form.name.trim()) return toast('Give the dish a name first', 'warn');
     setEstimating(true);

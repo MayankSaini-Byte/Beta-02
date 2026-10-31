@@ -26,7 +26,7 @@ router.get('/', asyncH(async (req, res) => {
 // POST /api/members { name, role, type, calorieTarget }
 router.post('/', asyncH(async (req, res) => {
   const b = req.body || {};
-  if (!b.name) throw httpError(400, 'Name is required');
+  if (!String(b.name || '').trim()) throw httpError(400, 'Name is required');
   const user = await getUser(req);
   const member = {
     id: crypto.randomUUID(),
@@ -45,6 +45,9 @@ router.post('/', asyncH(async (req, res) => {
 router.patch('/:id', asyncH(async (req, res) => {
   const user = await getUser(req);
   const b = req.body || {};
+  const existing = (user.members || []).find((m) => m.id === req.params.id);
+  if (!existing) throw httpError(404, 'Member not found');
+  if (b.name !== undefined && !String(b.name).trim()) throw httpError(400, 'Member name cannot be empty');
   const members = (user.members || []).map((m) => {
     if (m.id !== req.params.id) return m;
     return {
@@ -62,7 +65,9 @@ router.patch('/:id', asyncH(async (req, res) => {
 // DELETE /api/members/:id
 router.delete('/:id', asyncH(async (req, res) => {
   const user = await getUser(req);
-  const members = (user.members || []).filter((m) => m.id !== req.params.id);
+  const before = user.members || [];
+  const members = before.filter((m) => m.id !== req.params.id);
+  if (members.length === before.length) throw httpError(404, 'Member not found');
   await req.db.col('users').updateOne({ _id: user._id }, { members });
   res.json({ ok: true, members });
 }));

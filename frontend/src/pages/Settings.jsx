@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import api, { inr } from '../api/client.js';
+import api, { downloadInventoryCsv } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import Icon from '../components/Icon.jsx';
 import { LANGS } from '../i18n.js';
@@ -10,6 +10,8 @@ export default function Settings() {
   const [members, setMembers] = useState([]);
   const [newMember, setNewMember] = useState({ name: '', role: 'member', type: 'adult' });
   const [saving, setSaving] = useState(false);
+  const [savingMember, setSavingMember] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const load = async () => {
     const [me, mem] = await Promise.all([api.get('/auth/me'), api.get('/members')]);
@@ -18,6 +20,13 @@ export default function Settings() {
     setHh({ ...(me.data.user.household || {}) });
   };
   useEffect(() => { load().catch(() => {}); }, []);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try { await downloadInventoryCsv(); toast('Inventory CSV downloaded', 'ok'); }
+    catch (e) { toast(e.response?.data?.error || 'Could not export inventory', 'err'); }
+    setExporting(false);
+  };
 
   const saveProfile = async () => {
     setSaving(true);
@@ -39,11 +48,17 @@ export default function Settings() {
     } catch (e) { toast(e.response?.data?.error || 'Could not add member', 'err'); }
   };
 
-  const updateMember = async (id, patch) => {
+  const updateMember = (id, patch) => setMembers((rows) => rows.map((m) => m.id === id ? { ...m, ...patch } : m));
+
+  const saveMember = async (member) => {
+    if (!member.name.trim()) return toast('Member name cannot be empty', 'warn');
+    setSavingMember(member.id);
     try {
-      const { data } = await api.patch(`/members/${id}`, patch);
+      const { data } = await api.patch(`/members/${member.id}`, { name: member.name.trim(), role: member.role, type: member.type, calorieTarget: member.calorieTarget });
       setMembers(data.members);
-    } catch { toast('Could not update member', 'err'); }
+      toast(`${member.name.trim()} updated`, 'ok');
+    } catch (e) { toast(e.response?.data?.error || 'Could not update member', 'err'); }
+    setSavingMember('');
   };
 
   const removeMember = async (id) => {
@@ -131,7 +146,6 @@ export default function Settings() {
           </div>
           <div>
             <div className="small muted mb-1">Theme</div>
-            <button className="btn" onClick={() => document.documentElement.dataset.theme === 'light' ? '' : ''} style={{ display: 'none' }} />
             <span className="small muted">Use the sun/moon button in the top bar - dark & cream-light both styled.</span>
           </div>
         </div>
@@ -142,12 +156,12 @@ export default function Settings() {
         <h2 style={{ fontSize: 16, marginBottom: 4 }}>Data & persistence</h2>
         <div className="flex wrap mt-2" style={{ gap: 8 }}>
           <span className={`chip ${mode === 'mongo' ? 'chip-ok' : 'chip-warn'}`}>
-            {mode === 'mongo' ? 'MongoDB connected - data persists across restarts' : 'Temporary store - set MONGO_URI to persist'}
+            {mode === 'mongo' ? 'MongoDB connected - data persists across restarts' : mode === 'file' ? 'Local file store - data persists across restarts' : 'In-memory demo - data resets on restart'}
           </span>
-          <a className="btn" href="/api/pantry/export" target="_blank" rel="noreferrer"><Icon name="upload" /> Export inventory CSV</a>
+          <button className="btn" onClick={exportCsv} disabled={exporting}><Icon name="upload" /> {exporting ? 'Exporting…' : 'Export inventory CSV'}</button>
         </div>
         <div className="small muted mt-2">
-          Backend: Node.js + Express + MongoDB (Mongoose models in <code>backend/src/models/</code>).
+          Backend: Node.js + Express + optional MongoDB (Mongoose models in <code>backend/src/models/</code>).
           Drivers: mongo (persistent) / file (persistent, zero-config) / memory (demo). See <code>kitchensync/README.md</code>.
         </div>
       </div>

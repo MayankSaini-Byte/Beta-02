@@ -33,8 +33,10 @@ function collection(name) {
       const docs = await q;
       return docs.map((d) => ({ ...d, _id: String(d._id) }));
     },
-    async findOne(filter = {}) {
-      const doc = await Model.findOne(filter).lean();
+    async findOne(filter = {}, opts = {}) {
+      let query = Model.findOne(filter);
+      if (opts.sort) query = query.sort(opts.sort);
+      const doc = await query.lean();
       return doc ? { ...doc, _id: String(doc._id) } : null;
     },
     async insertOne(doc) {
