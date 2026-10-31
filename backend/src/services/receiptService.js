@@ -4,7 +4,7 @@
  * Standard JSON format (the frontend NEVER changes, whatever the model outputs):
  *   { receipt_id, items: [{ raw_name, name, qty, unit, price, confidence, matched_stock_id }] }
  *
- * Pipeline: image bytes -> model service (or z-ai vision, or text fallback)
+ * Pipeline: image bytes -> local model service (or local text fallback)
  *   -> unit parsing (regex + unit table, same converter as recipe logic)
  *   -> fuzzy match to existing stock (so "TOMATO LOCAL" joins "Tomato")
  *   -> confidence flags (< 0.7 highlighted amber in review)

@@ -49,7 +49,7 @@ Node.js + Express + MongoDB (Mongoose models) · React (Vite) · FastAPI model s
 
 1. **IoT / Devices page** (`#/devices`): per-container live weight, battery bar, Wi-Fi, "last seen", **online/stale badges**, **sensor-vs-app conflict cards** ("Trust sensor / Keep app"), weight-over-time chart, **Tare** calibration, **Simulate sensor** (venue-Wi-Fi fallback), link sensor → stock item, and a **nonsense-value guard** ("Send junk" button proves rejected readings can't corrupt stock).
 2. **Stock accuracy**: accuracy % from physical counts, **accuracy-over-time chart**, biggest-gap items in the audit trail, reconciliation history seeded, sensor-vs-expected evidence trail.
-3. **Scan & Detect**: barcode → stock (USB HID + camera + Open Food Facts), **receipt scan** (demo text → AI extraction → review → stock) with a **measured accuracy badge (7/8 on the test receipt)**, produce auto-detect (on-device MobileNet), fallbacks everywhere.
+3. **Scan & Detect**: barcode → stock (USB HID + camera + Open Food Facts), **receipt scan** (local PaddleOCR image extraction or local text parsing → review → stock), produce auto-detect (on-device MobileNet), and clear retry/manual-entry feedback.
 4. **Insights**: Stock-by-category **₹ value chart**, **wastage watch with money wasted**, spend trend (labeled simulated), activity feed.
 5. **Activity log**: "who added, used or changed what, and when" - members' actions are attributed (flatmates bonus).
 
@@ -61,7 +61,7 @@ Double mark-done (idempotent) · over-deduction clamps to 0 + flags shortfall ·
 
 ## Tech stack
 
-**Backend** - Node.js, Express 4, MongoDB via Mongoose 8 (schema-per-file in `src/models/`), JWT (bcryptjs + jsonwebtoken), driver abstraction: mongo (persistent) / **file** (persistent, zero-config) / memory (demo). **Vision**: receipts + expiry dates via a Python/FastAPI model service (`model-service/`, drop your trained model in) with a z-ai vision fallback and honest failure cards. **Hardware**: ESP32 + HX711 load-cell station (`hardware/`).
+**Backend** - Node.js, Express 4, MongoDB via Mongoose 8 (schema-per-file in `src/models/`), JWT (bcryptjs + jsonwebtoken), driver abstraction: mongo (persistent) / **file** (persistent, zero-config) / memory (demo). **Vision**: receipts + expiry dates via a Python/FastAPI model service (`model-service/`) with local PaddleOCR PP-OCRv5 mobile CPU weights; receipt photos are not sent to cloud vision. **Hardware**: ESP32 + HX711 load-cell station (`hardware/`).
 **Frontend** - React 18 (Vite), React Router (hash), Framer Motion, Recharts, i18n (EN/हिं), hand-rolled CSS design system (Fraunces + Inter, dark + cream-light).
 **ML** - `ml/train-produce-model/` Keras transfer-learning pipeline with TFJS export.
 
@@ -110,64 +110,70 @@ kitchensync/
 │       ├── pages/                 # Login, Dashboard, Recipes, RecipeDetail, Planner, Shopping (deep-link handoff),
 │       │                          # Scan (expiry checker + receipt scanner), Devices (+weighing station), Analytics, Settings
 │       └── styles/global.css      # design system (dark + cream-light, Fraunces/Inter)
-├── model-service/                 # Python/FastAPI vision service (receipts + expiry) - plug your model in
+├── model-service/                 # Local Python/FastAPI PaddleOCR service (receipts + expiry)
 ├── hardware/                      # ESP32 + HX711 firmware, wiring, calibration, venue tips
 ├── docs/API.md                    # REST reference
 ├── ml/train-produce-model/        # custom produce-model training pipeline
 └── docker-compose.yml
 ```
 
-## Quick start
+## Run locally with `runner.bat` (Windows)
 
-### A) Zero-config demo (30 seconds, data still persists)
+KitchenSync runs entirely on your laptop. The Node.js backend serves the built website at `http://localhost:5000`, and the local PaddleOCR service runs alongside it on `127.0.0.1:8000`. No cloud deployment or external database is required. The default JSON database persists at `db/kitchensync-store.json` and is local-only.
 
-```bash
-cd kitchensync/backend
-npm install
-npm start            # API + built frontend on http://localhost:5000
+### One-time setup
+
+Install **Node.js 18+** and **Python 3.11–3.13**. From Command Prompt in the repository folder, run:
+
+```bat
+npm --prefix backend ci --omit=dev --ignore-scripts
+npm --prefix frontend ci
+npm --prefix frontend run build
+py -3 -m venv model-service\.venv
+model-service\.venv\Scripts\python.exe -m pip install --upgrade pip
+model-service\.venv\Scripts\python.exe -m pip install -r model-service\requirements.txt
+model-service\.venv\Scripts\python.exe model-service\setup_models.py
 ```
 
-Demo login: **demo@kitchensync.app / demo1234** (or click "Explore the demo kitchen").
-No MONGO_URI? The API auto-uses the **persistent file store** (`db/kitchensync-store.json`) - restart-safe without installing anything.
+The final command downloads the pretrained PaddleOCR detector and English recognizer once. They are stored under `model-service/.receipt-models/`; after setup, receipt OCR runs locally without sending receipt images to a cloud OCR service.
 
-### B) Development (hot reload, two terminals)
+### Start the app
 
-```bash
-cd kitchensync/backend && npm install && npm run dev      # API on :5000
-cd kitchensync/frontend && npm install && npm run dev     # UI on :5173 (proxies /api)
+In Command Prompt, from the repository folder:
+
+```bat
+runner.bat
 ```
 
-### C) With MongoDB (recommended - the real deal)
+The launcher opens separate Command Prompt windows for the OCR model and KitchenSync API, then opens `http://localhost:5000` in your browser. Keep both service windows open while using the app. To stop it, press **Ctrl+C** in both windows. Stop any previous KitchenSync windows before running `runner.bat` again.
 
-```bash
-# Option 1 - local MongoDB
-echo "MONGO_URI=mongodb://127.0.0.1:27017/kitchensync" > backend/.env
+Demo login: **demo@kitchensync.app / demo1234** (or choose **Explore the demo kitchen**). Receipt scans show editable results for review; stock changes only after you confirm them.
 
-# Option 2 - zero-install ephemeral mongo (auto-downloads binary)
-cd backend && npm run dev:mongo     # prints the MONGO_URI to use
+### Troubleshooting
 
-# Option 3 - MongoDB Atlas free tier: paste your SRV string into backend/.env
+- If `runner.bat` reports a missing dependency, rerun the matching one-time setup command above.
+- If the UI build is missing or stale, run `npm --prefix frontend run build` again.
+- If port 5000 or 8000 is already in use, stop the older KitchenSync service windows before restarting.
+- To use MongoDB instead of the default persistent local JSON database, configure `MONGO_URI` in `backend/.env` before launch. The launcher does not require MongoDB.
 
-# Option 4 - the sandbox/persistent script used by this preview:
-bash backend/scripts/ensure-mongo.sh && MONGO_URI=mongodb://127.0.0.1:27017/kitchensync npm start
+### Optional development mode
+
+For frontend hot reload, use two Command Prompt windows after the one-time dependency setup:
+
+```bat
+npm --prefix backend run dev
+npm --prefix frontend run dev
 ```
 
-### D) Vision model service (optional - receipts + expiry dates)
+The Vite development UI runs on port 5173 and proxies API requests to the backend on port 5000.
+
+### Optional Docker run
+
+Docker Compose is an alternative local setup. It does not deploy the app:
 
 ```bash
-cd kitchensync/model-service
-pip install -r requirements.txt
-uvicorn model_service:app --host 0.0.0.0 --port 8000
-# then in backend/.env:
-#   MODEL_SERVICE_URL=http://127.0.0.1:8000
-```
-
-Drop your trained model into `run_your_model()` / `run_your_expiry_model()` in `model-service/model_service.py`.
-No service running? The backend falls back to z-ai vision, then to the honest failure card - the demo never dies.
-
-### E) Docker
-
-```bash
+docker compose build model-service
+docker compose run --rm model-service python setup_models.py
 docker compose up --build
 ```
 
@@ -177,7 +183,7 @@ docker compose up --build
 |---|---|
 | Store **prices** (Instamart/Blinkit/Zepto/BigBasket) | **Simulated** - deterministic per item+store+day; no public APIs, scraping breaks ToS. Pluggable adapter in `priceService.js`. Headings say "simulated". |
 | **Ordering on the real stores** | **Deep-link hand-off** - each list item opens its pre-filled search page on the store; there is no public cart API, so the cart tap happens in the store's own app. Copy-ready list text included. |
-| **Receipt scan** | Photo → model service (`model-service/`, your model + OCR fallback) or z-ai vision fallback → unit parsing + fuzzy matching → **human review** → stock. SHA-256 duplicate guard. Measured self-test on a fixed 9-item receipt + 5 unit checks, rerunnable any time. |
+| **Receipt scan** | Photo → local PaddleOCR PP-OCRv5 mobile CPU model → unit parsing + fuzzy matching → **human review** → stock. SHA-256 duplicate guard. Receipt images are not sent to cloud OCR/vision APIs. |
 | **Expiry date checker** | Photo → model/vision → **editable review** → item expiry + reminder. Refuses to guess: no readable date → "retake or type it manually". |
 | **Load-cell weighing station** | **Real hardware path**: ESP32 + HX711 firmware in `hardware/`, server-side latest reading, stability + freshness + plausibility guards, audit trail. No hardware at the venue? "Simulate sensor" posts a server-side reading - labeled as such. |
 | Recipe quantity estimation | **AI (z-ai SDK)** with deterministic fallback, flagged "estimated, editable". |
@@ -192,7 +198,7 @@ docker compose up --build
 - **Barcode scanning** - dropped on purpose: barcodes identify the *product*, not *your* pack's freshness. The phone-camera **expiry date checker** + **receipt scanner** cover the actual jobs (what is it, how much, until when) with zero extra hardware.
 - **Fridge camera item recognition** - beyond scope for the demo window; the model-service contract is ready if you want to add it.
 - **Full nutrition tracking (micros, BMR math)** - we ship protein/carbs/fat/fiber per recipe + gym goals; a full dietitian engine is a separate product.
-- **A proprietary receipt OCR model trained this weekend** - the service contract, normalization, matching, review and audit are all real; plug your trained model into `model-service/model_service.py`.
+- **A proprietary receipt OCR model trained from scratch** - KitchenSync uses an official pretrained PP-OCRv5 mobile model locally; no custom model training is claimed.
 
 ## API
 

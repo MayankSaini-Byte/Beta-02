@@ -11,10 +11,10 @@ const env = {
   JWT_EXPIRES: process.env.JWT_EXPIRES || '7d',
   OFF_TIMEOUT_MS: parseInt(process.env.OFF_TIMEOUT_MS || '2500', 10),
   FRONTEND_DIST: process.env.FRONTEND_DIST || '',
-  // Vision model service (Python/FastAPI - see model-service/). When set, receipt
-  // photos and expiry photos are forwarded there with a hard timeout.
+  // Local OCR model service (Python/FastAPI - see model-service/). Receipt photos
+  // are forwarded only to this same-machine service with a hard timeout.
   MODEL_SERVICE_URL: (process.env.MODEL_SERVICE_URL || '').trim(),
-  MODEL_TIMEOUT_MS: parseInt(process.env.MODEL_TIMEOUT_MS || '8000', 10),
+  MODEL_TIMEOUT_MS: parseInt(process.env.MODEL_TIMEOUT_MS || '60000', 10),
   // Shared secret the ESP32 load-cell firmware sends in the x-device-key header
   DEVICE_KEY: process.env.DEVICE_KEY || 'secret-device-key'
 };

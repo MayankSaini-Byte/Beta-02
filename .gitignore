@@ -17,3 +17,11 @@ frontend/.env
 .DS_Store
 ml/train-produce-model/dataset/
 ml/train-produce-model/models/
+model-service/.receipt-models/
+model-service/.paddlex/
+**/__pycache__/
+*.py[cod]
+
+model-service/.venv/
+db/kitchensync-store.json
+# local runtime data

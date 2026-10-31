@@ -321,7 +321,7 @@ function ReceiptPanel() {
         <div>
           <h3 style={{ fontSize: 15 }}>Receipt scanner</h3>
           <p className="small muted mt-1" style={{ maxWidth: 640 }}>
-            Flow: photograph the bill → backend forwards it to the model service (with a hard timeout) → units are
+            Flow: photograph the bill → backend forwards it to the local PaddleOCR model service (with a hard timeout) → units are
             parsed ("500G", "1 LTR", "2 PCS") → lines are fuzzy-matched to your stock ("TOMATO LOCAL" joins "Tomato")
             → <b>you review</b> → Confirm adds to stock. The photo's SHA-256 hash is remembered, so scanning the same
             bill twice can never double your stock.
@@ -346,7 +346,7 @@ function ReceiptPanel() {
       {imgPreview && busy && (
         <div className="tc mt-2">
           <img src={imgPreview} alt="receipt" className="preview-img" style={{ maxHeight: 200, opacity: 0.6 }} />
-          <div className="small muted mt-1">Reading the receipt… (model service, 8 s timeout, then vision fallback)</div>
+          <div className="small muted mt-1">Reading the receipt locally with PaddleOCR…</div>
         </div>
       )}
 
@@ -379,6 +379,7 @@ function ReceiptPanel() {
             </b>
             <span className="chip">engine: {scan.engine}</span>
           </div>
+          {scan.receipt && <div className="small muted mb-1" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>{[['Store', scan.receipt.store], ['Date', scan.receipt.date], ['Subtotal', scan.receipt.subtotal], ['Tax', scan.receipt.tax], ['Discount', scan.receipt.discount], ['Total', scan.receipt.total_amount]].filter(([, value]) => value !== null && value !== undefined && value !== '').map(([label, value]) => <span key={label}><b>{label}:</b> {label === 'Store' || label === 'Date' ? value : `${scan.receipt.currency === 'INR' ? '₹' : scan.receipt.currency === 'USD' ? '$' : ''}${value}`}</span>)}</div>}
           {lowCount > 0 && <div className="tiny mb-1" style={{ color: 'var(--amber)' }}>{lowCount} low-confidence row(s) in amber - double-check those.</div>}
           <div className="table-wrap">
             <table>

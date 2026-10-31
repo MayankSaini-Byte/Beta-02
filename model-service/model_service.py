@@ -8,18 +8,15 @@ The Node backend forwards phone-camera images here:
     POST /expiry    multipart "photo"   -> { "product": "...", "expiry_date": "YYYY-MM-DD", "confidence": 0.9 }
     GET  /health
 
-Wire in YOUR model
-------------------
-Everything routes through two functions you own:
+Local OCR engine
+----------------
+Receipt photos use local PaddleOCR PP-OCRv5 mobile after its pretrained weights
+have been installed once. The Node backend normalizes extracted rows (units,
+fuzzy match, review). Receipt photos are never sent to cloud vision. The optional
+pytesseract fallback remains for expiry-date parsing only.
 
-    run_your_model(img)       -> list of dicts (receipt line items)
+    run_your_model(img)       -> list of local OCR receipt line items
     run_your_expiry_model(img)-> {"product": ..., "expiry_date": ..., "confidence": ...}
-
-Drop your trained model in (torch / TF / paddleocr / ...), return the fields
-above, and the Node backend normalizes the rest (units, fuzzy match, review).
-If your model raises or returns nothing, a pytesseract OCR fallback runs; if
-that also fails, the backend shows "Couldn't read this receipt" - it never
-invents items.
 
 Run:
     pip install -r requirements.txt
@@ -27,7 +24,7 @@ Run:
 
 Then in the Node backend .env:
     MODEL_SERVICE_URL=http://127.0.0.1:8000
-    MODEL_TIMEOUT_MS=8000
+    MODEL_TIMEOUT_MS=60000
 """
 import io
 import re
@@ -37,6 +34,7 @@ from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
+from receipt_ocr.engine import analyze_receipt, extract_receipt_items, models_ready
 
 app = FastAPI(title="KitchenSync model service", version="1.0.0")
 app.add_middleware(
@@ -44,19 +42,20 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------------------------
-# 1) YOUR MODEL GOES HERE - replace these two functions
+# 1) Local receipt OCR and optional expiry model
 # ----------------------------------------------------------------------------
 
 def run_your_model(img: Image.Image) -> List[dict]:
-    """Your trained receipt model. Return one dict per line item:
+    """Run the local pretrained PP-OCRv5 mobile detector/recognizer and parser.
+    Return one dict per line item:
     {"raw_name": "AMUL BUTTER 500G", "qty": 500, "unit": "g", "price": 275, "confidence": 0.91}
-    qty must be in base units (g | ml | pc); the Node backend re-checks anyway.
+    qty and unit are actual receipt values; KitchenSync normalizes and rechecks them.
     """
-    raise NotImplementedError  # -> falls through to the OCR fallback below
+    return extract_receipt_items(img)
 
 
 def run_your_expiry_model(img: Image.Image) -> Optional[dict]:
-    """Your trained expiry-date reader. Return
+    """Optional expiry-date model. Return
     {"product": "Amul Butter", "expiry_date": "2026-08-17", "confidence": 0.93}
     or None if no date is visible.
     """
@@ -161,20 +160,19 @@ def parse_expiry(text: str) -> Optional[dict]:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "ocr": HAS_OCR}
+    return {"ok": True, "ocr": HAS_OCR, "engine": "PaddleOCR PP-OCRv5 mobile (CPU)", "models_ready": models_ready()}
 
 
 @app.post("/predict")
 async def predict(receipt: UploadFile = File(...)):
     img = Image.open(io.BytesIO(await receipt.read())).convert("RGB")
     try:
-        items = run_your_model(img)  # your model first
-    except Exception:
-        try:
-            items = parse_receipt_lines(ocr(img))  # OCR fallback
-        except Exception:
-            return {"items": []}  # Node backend shows the honest failure card
-    return {"items": items or []}
+        result = analyze_receipt(img)
+    except Exception as error:
+        # Receipt photos stay on this machine. Do not route a failed local scan
+        # to an external vision provider or silently substitute another engine.
+        return {"items": [], "receipt": None, "engine": "PaddleOCR PP-OCRv5 mobile (CPU)", "error": str(error)}
+    return {**result, "engine": "PaddleOCR PP-OCRv5 mobile (CPU)"}
 
 
 @app.post("/expiry")

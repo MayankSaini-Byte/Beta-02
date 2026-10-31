@@ -19,7 +19,6 @@ const { asyncH, httpError } = require('../middleware/errors');
 const env = require('../config/env');
 const { callModel } = require('../services/modelClient');
 const receiptSvc = require('../services/receiptService');
-const { parseReceipt } = require('../services/aiService');
 const { logActivity } = require('../services/activityService');
 const { todayISO, addDaysISO, daysUntil } = require('../utils/dates');
 const { smartQty } = require('../utils/units');
@@ -63,6 +62,7 @@ router.post('/scan', upload.single('receipt'), asyncH(async (req, res) => {
 
   let rawItems = [];
   let engine = 'model';
+  let receiptMetadata = null;
   let note = '';
   let ok = true;
 
@@ -71,30 +71,21 @@ router.post('/scan', upload.single('receipt'), asyncH(async (req, res) => {
     const modelRes = await callModel('/predict', file.buffer, file.originalname, file.mimetype, 'receipt');
     if (modelRes.ok && Array.isArray(modelRes.data.items) && modelRes.data.items.length) {
       rawItems = modelRes.data.items;
-      engine = 'model';
+      receiptMetadata = modelRes.data.receipt || null;
+      engine = modelRes.data.engine || 'PaddleOCR PP-OCRv5 mobile (CPU)';
     } else {
-      // 2nd choice: z-ai vision reads the photo directly
-      const b64 = `data:${file.mimetype || 'image/jpeg'};base64,${file.buffer.toString('base64')}`;
-      try {
-        rawItems = await parseReceiptVision(b64);
-        engine = 'ai-vision';
-        if (modelRes.ok === false && modelRes.reason !== 'no-model-service') {
-          note = 'Model service was unreachable - used the built-in vision fallback.';
-        }
-      } catch {
-        ok = false;
-      }
+      // Receipt photos contain private shopping data. Keep image OCR local:
+      // no external vision API fallback when the local PaddleOCR service fails.
+      ok = false;
+      note = modelRes.ok
+        ? (modelRes.data.error || 'The local OCR engine found no grocery items.')
+        : 'Start the local PaddleOCR model service and install its pretrained models once.';
     }
   } else {
-    // text fallback (OCR failed / demo mode): same normalization pipeline
-    try {
-      const parsed = await parseReceipt(text);
-      rawItems = parsed.items.map((i) => ({ raw_name: i.name, confidence: i.confidence / 100 }));
-      engine = parsed.engine === 'ai' ? 'text-ai' : 'text-heuristic';
-    } catch {
-      rawItems = receiptSvc.parseReceiptText(text).map((r) => ({ raw_name: r.raw_name, qty: r.qty, unit: r.unit, price: r.price }));
-      engine = 'text-heuristic';
-    }
+    // Text review uses the local deterministic parser too. Receipt contents
+    // never leave this installation for any external AI service.
+    rawItems = receiptSvc.parseReceiptText(text).map((r) => ({ raw_name: r.raw_name, qty: r.qty, unit: r.unit, price: r.price }));
+    engine = 'text-local';
   }
 
   if (!ok || !rawItems.length) {
@@ -102,7 +93,7 @@ router.post('/scan', upload.single('receipt'), asyncH(async (req, res) => {
     return res.json({
       ok: false,
       message: "Couldn't read this receipt. Retake the photo in good light, or add the items manually below.",
-      hint: 'Blurry or angled photos are the usual cause. You can also paste the receipt text instead.'
+      hint: note || 'Blurry or angled photos are the usual cause. You can also paste the receipt text instead.'
     });
   }
 
@@ -117,6 +108,7 @@ router.post('/scan', upload.single('receipt'), asyncH(async (req, res) => {
     engine,
     status: 'scanned',
     source: file ? 'photo' : 'text',
+    receipt: receiptMetadata,
     items,
     note,
     createdAt: new Date().toISOString()
@@ -129,15 +121,11 @@ router.post('/scan', upload.single('receipt'), asyncH(async (req, res) => {
     receiptId: doc._id,
     engine,
     items,
+    receipt: doc.receipt || null,
     note,
     reviewNote: 'Review the list - fix quantities and untick anything the scan got wrong. Nothing is added until you confirm.'
   });
 }));
-
-async function parseReceiptVision(b64) {
-  const ai = require('../services/aiService');
-  return ai.visionReceipt(b64);
-}
 
 // POST /api/receipts/demo - runs a receipt through the exact same normalize/
 // match pipeline as a photo (unit parse -> fuzzy match -> review), deterministically.

@@ -1,11 +1,10 @@
 /**
- * Client for the external vision model service (Python/FastAPI - see model-service/).
+ * Client for the local OCR model service (Python/FastAPI - see model-service/).
  *
  * The Node backend never parses pixels itself: it forwards the image bytes with a
  * hard timeout and normalizes whatever comes back into the standard JSON format.
- * If the service is down / slow / returns garbage the caller degrades gracefully
- * (z-ai vision fallback -> honest failure card). The frontend never crashes and
- * the backend never invents items.
+ * If the local service is down / slow / returns garbage, the receipt route
+ * shows an honest failure card. Receipt photos are never sent to cloud OCR.
  *
  * Expected endpoints on the model service:
  *   POST /predict         multipart field "receipt" -> { items: [{ raw_name, name, qty, unit, price, confidence }] }
