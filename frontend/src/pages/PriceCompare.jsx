@@ -39,6 +39,30 @@ function resultPrice(result, item) {
   return prices.length ? Math.min(...prices) : null;
 }
 
+function retailerPurchaseLink(offer) {
+  const candidates = [offer.url, offer.sourceUrl, offer.source_url, offer.productUrl, offer.product_url, offer.deepLink, offer.deep_link, offer.latest?.sourceUrl, offer.latest?.source_url];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const url = new URL(String(raw).trim());
+      if (url.protocol === 'https:' && !url.username && !url.password) return { href: url.href, direct: true };
+    } catch { /* Use the retailer's own search URL if the API URL is malformed. */ }
+  }
+
+  // Rewalto's matched title and pack size identify the actual offer shown on this card.
+  const query = encodeURIComponent(`${offer.title || ''} ${offer.packSize || ''}`.trim());
+  const key = String(offer.retailer || '').toLowerCase().replaceAll('_', ' ');
+  const destinations = [
+    { match: /blinkit/, host: 'Blinkit', href: `https://blinkit.com/s/?q=${query}` },
+    { match: /zepto/, host: 'Zepto', href: `https://www.zeptonow.com/search?query=${query}` },
+    { match: /instamart|swiggy/, host: 'Instamart', href: `https://www.swiggy.com/instamart/search?query=${query}` },
+    { match: /bigbasket/, host: 'BigBasket', href: `https://www.bigbasket.com/ps/?q=${query}` },
+    { match: /jiomart|jio mart/, host: 'JioMart', href: `https://www.jiomart.com/search/${query}` },
+    { match: /amazon/, host: 'Amazon', href: `https://www.amazon.in/s?k=${query}` }
+  ];
+  const destination = destinations.find((entry) => entry.match.test(key));
+  return destination ? { href: destination.href, direct: false, host: destination.host } : null;
+}
 function storeName(retailer) {
   return String(retailer || 'Store').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -221,7 +245,7 @@ export default function PriceCompare() {
                     {offer.packsNeeded && offer.comparable && <small>{offer.packsNeeded} pack(s) · estimated {moneyMinor(offer.lineTotalMinor, offer.currency)} for {item.qty} {item.unit}</small>}
                     {!offer.comparable && <small>Pack size or product match could not be confirmed for a basket total.</small>}
                     <small className="store-offer-observed">{observedLabel(offer.observedAt)}</small>
-                    {offer.url?.startsWith('https://') && <a href={offer.url} target="_blank" rel="noopener noreferrer">{offer.stock === false ? 'Check availability ↗' : 'Open store listing ↗'}</a>}
+                    {(() => { const purchase = retailerPurchaseLink(offer); return purchase ? <a className="store-offer-buy-link" href={purchase.href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{offer.stock === false ? 'Check availability' : purchase.direct ? 'Buy this exact item' : `Open ${purchase.host} listing`}<Icon name="external" size={14} /></a> : <span className="store-offer-buy-unavailable">No purchase link for this retailer</span>; })()}
                   </div>;
                 })}
               </div>}

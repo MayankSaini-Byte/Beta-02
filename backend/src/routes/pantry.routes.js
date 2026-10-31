@@ -64,6 +64,10 @@ router.get('/', asyncH(async (req, res) => {
 router.post('/', asyncH(async (req, res) => {
   const b = req.body || {};
   if (!b.name) throw httpError(400, 'Item name is required');
+  if (b.purchaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(b.purchaseDate)) throw httpError(400, 'Purchase date must be YYYY-MM-DD');
+  if (b.expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(b.expiryDate)) throw httpError(400, 'Expiry date must be YYYY-MM-DD');
+  if (b.shelfLifeDays !== undefined && (!Number.isFinite(Number(b.shelfLifeDays)) || Number(b.shelfLifeDays) < 1 || Number(b.shelfLifeDays) > 3650)) throw httpError(400, 'Shelf life must be between 1 and 3650 days');
+  if (b.storage !== undefined && !['room', 'fridge', 'freezer'].includes(b.storage)) throw httpError(400, 'Storage must be room, fridge, or freezer');
   const cat = resolveCatalog(b.name);
   const pantries = req.db.col('pantries');
   const nameKey = cat ? cat.key : null;
@@ -77,15 +81,20 @@ router.post('/', asyncH(async (req, res) => {
   const unit = b.unit || (cat ? cat.unit : 'g');
   const threshold = b.threshold != null ? Math.max(0, Number(b.threshold)) : existing ? existing.threshold : Math.max(1, Math.round(quantity * 0.25));
   const mode = b.mode === 'set' ? 'set' : 'add';
+  const purchaseDate = b.purchaseDate || (mode === 'add' ? todayISO() : existing?.purchaseDate) || todayISO();
+  const shelfLifeDays = Number(b.shelfLifeDays) > 0 ? Number(b.shelfLifeDays) : Number(existing?.shelfLifeDays) || cat?.shelfLifeDays || 7;
+  const storage = ['room', 'fridge', 'freezer'].includes(b.storage) ? b.storage : existing?.storage || (['dairy', 'vegetables', 'fruits'].includes(cat?.category) ? 'fridge' : 'room');
   const existingExpirySource = existing && (existing.expirySource || (existing.expiryDate ? 'recorded' : null));
-  const expiryDate = b.expiryDate || (existing && existingExpirySource !== 'estimated' && existing.expiryDate) || (cat ? addDaysISO(todayISO(), cat.shelfLifeDays) : addDaysISO(todayISO(), 7));
+  const storageFactor = storage === 'room' ? 0.65 : storage === 'freezer' ? 2.5 : 1;
+  const estimatedExpiry = addDaysISO(purchaseDate, Math.max(1, Math.round(shelfLifeDays * storageFactor)));
+  const expiryDate = b.expiryDate || (existing && existingExpirySource !== 'estimated' && existing.expiryDate) || estimatedExpiry;
   const expirySource = b.expiryDate ? 'entered' : existingExpirySource || 'estimated';
 
   if (existing) {
     const nextQty = mode === 'add' ? existing.quantity + quantity : quantity;
     const updated = await pantries.updateOne(
       { _id: existing._id },
-      { quantity: nextQty, unit, threshold, expiryDate, expirySource, capacity: Math.max(existing.capacity, Math.ceil(nextQty * 1.25), threshold * 3), category: b.category || existing.category, key: nameKey || existing.key, updatedAt: new Date().toISOString() }
+      { quantity: nextQty, unit, threshold, expiryDate, expirySource, purchaseDate, shelfLifeDays, storage, capacity: Math.max(existing.capacity, Math.ceil(nextQty * 1.25), threshold * 3), category: b.category || existing.category, key: nameKey || existing.key, updatedAt: new Date().toISOString() }
     );
     return res.json({ item: enrich(updated), merged: true });
   }
@@ -101,6 +110,11 @@ router.post('/', asyncH(async (req, res) => {
     capacity: Math.max(Math.ceil(quantity * 1.25), threshold * 3, threshold + 1),
     expiryDate,
     expirySource,
+    purchaseDate,
+    shelfLifeDays,
+    storage,
+    opened: Boolean(b.opened),
+    openedAt: b.opened ? (b.openedAt || todayISO()) : null,
     addedBy: (req.body || {}).addedBy || 'Owner',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -113,11 +127,25 @@ router.post('/', asyncH(async (req, res) => {
 router.patch('/:id', asyncH(async (req, res) => {
   const patch = { updatedAt: new Date().toISOString() };
   const b = req.body || {};
-  for (const f of ['name', 'category', 'unit', 'expiryDate']) if (b[f] !== undefined) patch[f] = b[f];
+  for (const f of ['name', 'category', 'unit', 'expiryDate', 'purchaseDate']) if (b[f] !== undefined) patch[f] = b[f];
+  if (b.shelfLifeDays !== undefined) {
+    const shelfLifeDays = Number(b.shelfLifeDays);
+    if (!Number.isFinite(shelfLifeDays) || shelfLifeDays < 1 || shelfLifeDays > 3650) throw httpError(400, 'Shelf life must be between 1 and 3650 days');
+    patch.shelfLifeDays = shelfLifeDays;
+  }
+  if (b.storage !== undefined) {
+    if (!['room', 'fridge', 'freezer'].includes(b.storage)) throw httpError(400, 'Storage must be room, fridge, or freezer');
+    patch.storage = b.storage;
+  }
+  if (b.opened !== undefined) {
+    patch.opened = Boolean(b.opened);
+    patch.openedAt = patch.opened ? (b.openedAt || (req.body || {}).at || todayISO()) : null;
+  }
   if (b.expiryDate !== undefined) patch.expirySource = ['entered', 'scanned', 'estimated', 'recorded'].includes(b.expirySource) ? b.expirySource : 'entered';
   if (b.name !== undefined && !String(b.name).trim()) throw httpError(400, 'Item name cannot be empty');
   if (b.unit !== undefined && !['g', 'ml', 'pc'].includes(b.unit)) throw httpError(400, 'Unit must be g, ml, or pc');
   if (b.expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(b.expiryDate)) throw httpError(400, 'Expiry date must be YYYY-MM-DD');
+  for (const field of ['purchaseDate', 'openedAt']) if (b[field] && !/^\d{4}-\d{2}-\d{2}$/.test(b[field])) throw httpError(400, `${field} must be YYYY-MM-DD`);
   if (b.quantity !== undefined) patch.quantity = Math.max(0, Number(b.quantity) || 0);
   if (b.threshold !== undefined) patch.threshold = Math.max(0, Number(b.threshold) || 0);
   const updated = await req.db.col('pantries').updateOne({ _id: req.params.id, ownerId: req.userId }, patch);

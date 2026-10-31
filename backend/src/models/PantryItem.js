@@ -16,6 +16,11 @@ const PantryItemSchema = new Schema(
     capacity: { type: Number, default: 0 },
     expiryDate: { type: String, default: null }, // ISO yyyy-mm-dd
     expirySource: { type: String, enum: ['entered', 'scanned', 'estimated', 'recorded'], default: 'recorded' },
+    purchaseDate: { type: String, default: null }, // ISO yyyy-mm-dd
+    shelfLifeDays: { type: Number, default: null }, // typical shelf life before storage/opened adjustments
+    storage: { type: String, enum: ['room', 'fridge', 'freezer'], default: 'fridge' },
+    opened: { type: Boolean, default: false },
+    openedAt: { type: String, default: null },
     addedBy: { type: String, default: 'owner' }, // activity log / flatmates bonus
     createdAt: { type: String },
     updatedAt: { type: String }

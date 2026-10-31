@@ -4,6 +4,7 @@ const morgan = require('morgan');
 
 const authRoutes = require('./routes/auth.routes');
 const pantryRoutes = require('./routes/pantry.routes');
+const freshnessRoutes = require('./routes/freshness.routes');
 const recipeRoutes = require('./routes/recipes.routes');
 const plannerRoutes = require('./routes/planner.routes');
 const shoppingRoutes = require('./routes/shopping.routes');
@@ -37,6 +38,7 @@ function createApp(db) {
   app.use('/api/auth', authRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/pantry', pantryRoutes);
+  app.use('/api/freshness', freshnessRoutes);
   app.use('/api/recipes', recipeRoutes);
   app.use('/api/planner', plannerRoutes);
   app.use('/api/shopping', shoppingRoutes);

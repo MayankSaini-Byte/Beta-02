@@ -4,6 +4,7 @@ import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
 import Onboarding from './pages/Onboarding.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import Freshness from './pages/Freshness.jsx';
 import Recipes from './pages/Recipes.jsx';
 import RecipeDetail from './pages/RecipeDetail.jsx';
 import Planner from './pages/Planner.jsx';
@@ -47,6 +48,7 @@ function AppRoutes() {
       <Route path="/onboarding" element={<Protected allowOnboarding><Onboarding /></Protected>} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
+        <Route path="freshness" element={<Freshness />} />
         <Route path="recipes" element={<NonPgOnly><Recipes /></NonPgOnly>} />
         <Route path="recipes/:key" element={<NonPgOnly><RecipeDetail /></NonPgOnly>} />
         <Route path="planner" element={<SegmentOnly types={['household']}><Planner /></SegmentOnly>} />

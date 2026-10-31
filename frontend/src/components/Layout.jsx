@@ -10,6 +10,7 @@ import { getAccountType, isPgAccount } from '../utils/accountType.js';
 
 const TITLES = {
   '/': ['Kitchen Stock', 'Live view of everything in your kitchen'],
+  '/freshness': ['Freshness Index', 'See what is fresh and what to use next'],
   '/recipes': ['Recipe Library', 'Cook from what you have - with YouTube help'],
   '/planner': ['Meal Planner', 'Optimized around your stock, family size and budget'],
   '/mess-menu': ['Mess Menu', 'Weekly meals at A.P.J. Abdul Kalam Bhawan · H10'],
@@ -30,6 +31,7 @@ function navigation(accountType, user) {
     { to: '/planner', labelKey: 'planner', icon: 'planner' },
     { to: '/nutrition', labelKey: 'nutrition', icon: 'flame' },
     { to: '/shopping', labelKey: 'shopping', icon: 'cart' },
+    { to: '/freshness', label: 'Freshness', icon: 'leaf' },
     { to: '/price-compare', label: 'Store Offers', icon: 'search' },
     { to: '/scan', label: 'Scan & Detect', icon: 'scan', premium: true },
     { to: '/profile', labelKey: 'profile', icon: 'user' }
@@ -38,6 +40,7 @@ function navigation(accountType, user) {
     { to: '/', labelKey: 'dashboard', icon: 'dashboard' },
     { to: '/recipes', labelKey: 'recipes', icon: 'recipes' },
     { to: '/shopping', labelKey: 'shopping', icon: 'cart' },
+    { to: '/freshness', label: 'Freshness', icon: 'leaf' },
     { to: '/scan', label: 'Scan & Detect', icon: 'scan' },
     { to: '/devices', label: 'Storage', icon: 'chip' },
     { to: '/analytics', label: 'Insights & Accuracy', icon: 'analytics' },
@@ -49,6 +52,7 @@ function navigation(accountType, user) {
     { to: '/', labelKey: 'dashboard', icon: 'dashboard' },
     ...(isPgService ? [{ to: '/mess-menu', label: 'Mess Menu', icon: 'planner' }] : [{ to: '/recipes', labelKey: 'recipes', icon: 'recipes' }]),
     { to: '/shopping', labelKey: 'shopping', icon: 'cart' },
+    { to: '/freshness', label: 'Freshness', icon: 'leaf' },
     { to: '/scan', label: 'Scan & Detect', icon: 'scan' },
     { to: '/devices', label: 'Storage', icon: 'chip' },
     { to: '/analytics', label: 'Insights & Accuracy', icon: 'analytics' },
@@ -209,7 +213,7 @@ export default function Layout() {
       </div>
 
       <nav className="bottom-nav">
-        {navItems.filter((n) => (accountType === 'household' ? ['/', '/planner', '/nutrition', '/shopping', '/price-compare', '/scan'] : pgAccount ? ['/', '/mess-menu', '/shopping', '/devices', '/vendors'] : ['/', '/shopping', '/devices', '/vendors']).includes(n.to)).map((n) => (
+        {navItems.filter((n) => (accountType === 'household' ? ['/', '/planner', '/nutrition', '/shopping', '/freshness', '/price-compare', '/scan'] : pgAccount ? ['/', '/mess-menu', '/shopping', '/freshness', '/devices', '/vendors'] : ['/', '/shopping', '/freshness', '/devices', '/vendors']).includes(n.to)).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
             <Icon name={n.icon} size={19} />
             {(n.label || t(n.labelKey)).split(' ')[0]}

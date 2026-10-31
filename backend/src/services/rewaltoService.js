@@ -86,7 +86,7 @@ async function searchListings(query, pincode, forceRefresh = false) {
     return {
       title: listing.title || 'Untitled listing',
       retailer: listing.retailer || 'Store',
-      url: listing.url || listing.sourceUrl || latest.sourceUrl || null,
+      url: listing.url || listing.sourceUrl || listing.source_url || listing.productUrl || listing.product_url || listing.deepLink || listing.deep_link || latest.sourceUrl || latest.source_url || latest.deepLink || latest.deep_link || null,
       packSize: listing.packSizeRaw || null,
       matchAllWords: Boolean((listing.match || {}).allWords),
       priceMinor: latest.priceMinor ?? null,

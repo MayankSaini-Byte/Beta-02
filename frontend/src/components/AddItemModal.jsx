@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext.jsx';
 export default function AddItemModal({ open, onClose, onAdded }) {
   const { toast } = useApp();
   const [catalog, setCatalog] = useState([]);
-  const [form, setForm] = useState({ name: '', quantity: 1, unit: 'g', threshold: '', expiryDate: '' });
+  const [form, setForm] = useState({ name: '', quantity: 1, unit: 'g', threshold: '', expiryDate: '', purchaseDate: new Date().toISOString().slice(0, 10), storage: 'fridge', shelfLifeDays: '' });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -38,11 +38,14 @@ export default function AddItemModal({ open, onClose, onAdded }) {
         unit: form.unit,
         threshold: form.threshold === '' ? undefined : Number(form.threshold),
         expiryDate: form.expiryDate || undefined,
+        purchaseDate: form.purchaseDate || undefined,
+        storage: form.storage,
+        shelfLifeDays: form.shelfLifeDays ? Number(form.shelfLifeDays) : undefined,
         mode: 'add'
       });
       onAdded(data.item, data.merged);
       toast(data.merged ? `${data.item.name} restocked (+${form.quantity} ${form.unit})` : `${data.item.name} added to kitchen stock`);
-      setForm({ name: '', quantity: 1, unit: 'g', threshold: '', expiryDate: '' });
+      setForm({ name: '', quantity: 1, unit: 'g', threshold: '', expiryDate: '', purchaseDate: new Date().toISOString().slice(0, 10), storage: 'fridge', shelfLifeDays: '' });
       onClose();
     } catch (e) { toast(errMsg(e), 'err'); }
     setBusy(false);
@@ -77,6 +80,22 @@ export default function AddItemModal({ open, onClose, onAdded }) {
             <option value="pc">pieces (pc)</option>
           </select>
         </div>
+      </div>
+      <div className="field-row">
+        <div className="field">
+          <label className="label">Purchase date</label>
+          <input className="input" type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} />
+        </div>
+        <div className="field">
+          <label className="label">Typical shelf life (days)</label>
+          <input className="input" type="number" min="1" max="3650" placeholder={selected?.shelfLifeDays || 'Auto'} value={form.shelfLifeDays} onChange={(e) => setForm({ ...form, shelfLifeDays: e.target.value })} />
+        </div>
+      </div>
+      <div className="field">
+        <label className="label">Storage mode</label>
+        <select className="select" value={form.storage} onChange={(e) => setForm({ ...form, storage: e.target.value })}>
+          <option value="room">Room temperature</option><option value="fridge">Refrigerator</option><option value="freezer">Freezer</option>
+        </select>
       </div>
       <div className="field-row">
         <div className="field">
