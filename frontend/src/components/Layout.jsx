@@ -6,12 +6,13 @@ import api from '../api/client.js';
 import Icon from './Icon.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import { LANGS } from '../i18n.js';
-import { getAccountType } from '../utils/accountType.js';
+import { getAccountType, isPgAccount } from '../utils/accountType.js';
 
 const TITLES = {
   '/': ['Kitchen Stock', 'Live view of everything in your kitchen'],
   '/recipes': ['Recipe Library', 'Cook from what you have - with YouTube help'],
   '/planner': ['Meal Planner', 'Optimized around your stock, family size and budget'],
+  '/mess-menu': ['Mess Menu', 'Weekly meals at A.P.J. Abdul Kalam Bhawan · H10'],
   '/nutrition': ['Nutrition Planner', 'Daily food log and nutrition goals for each household member'],
   '/shopping': ['Smart Shopping', 'Manage your list, mark purchases, and hand off orders'],
   '/price-compare': ['Store Offers', 'Compare live store listings for your delivery area'],
@@ -22,7 +23,7 @@ const TITLES = {
   '/profile': ['Profile', 'Your kitchen, people and food preferences']
 };
 
-function navigation(accountType) {
+function navigation(accountType, user) {
   const household = [
     { to: '/', labelKey: 'dashboard', icon: 'dashboard' },
     { to: '/recipes', labelKey: 'recipes', icon: 'recipes' },
@@ -43,7 +44,18 @@ function navigation(accountType) {
     { to: '/vendors', label: 'Vendor Restocking', icon: 'truck' },
     { to: '/profile', labelKey: 'profile', icon: 'user' }
   ];
-  return accountType === 'household' ? household : business;
+  const isPgService = isPgAccount(user);
+  const service = [
+    { to: '/', labelKey: 'dashboard', icon: 'dashboard' },
+    ...(isPgService ? [{ to: '/mess-menu', label: 'Mess Menu', icon: 'planner' }] : [{ to: '/recipes', labelKey: 'recipes', icon: 'recipes' }]),
+    { to: '/shopping', labelKey: 'shopping', icon: 'cart' },
+    { to: '/scan', label: 'Scan & Detect', icon: 'scan' },
+    { to: '/devices', label: 'Storage', icon: 'chip' },
+    { to: '/analytics', label: 'Insights & Accuracy', icon: 'analytics' },
+    { to: '/vendors', label: 'Vendor Restocking', icon: 'truck' },
+    { to: '/profile', labelKey: 'profile', icon: 'user' }
+  ];
+  return accountType === 'household' ? household : accountType === 'service' ? service : business;
 }
 
 const DIET_OPTIONS = [
@@ -117,7 +129,8 @@ export default function Layout() {
   const { user, mode, theme, setTheme, logout, notifs, t, lang } = useApp();
   const loc = useLocation();
   const accountType = getAccountType(user);
-  const navItems = navigation(accountType);
+  const pgAccount = isPgAccount(user);
+  const navItems = navigation(accountType, user);
   const [baseTitle, sub] = TITLES[loc.pathname] || ['KitchenSync', ''];
   const title = loc.pathname === '/devices' ? 'Storage' : baseTitle;
 
@@ -196,7 +209,7 @@ export default function Layout() {
       </div>
 
       <nav className="bottom-nav">
-        {navItems.filter((n) => accountType === 'household' ? ['/', '/planner', '/nutrition', '/shopping', '/price-compare', '/scan'].includes(n.to) : ['/', '/shopping', '/devices', '/vendors'].includes(n.to)).map((n) => (
+        {navItems.filter((n) => (accountType === 'household' ? ['/', '/planner', '/nutrition', '/shopping', '/price-compare', '/scan'] : pgAccount ? ['/', '/mess-menu', '/shopping', '/devices', '/vendors'] : ['/', '/shopping', '/devices', '/vendors']).includes(n.to)).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
             <Icon name={n.icon} size={19} />
             {(n.label || t(n.labelKey)).split(' ')[0]}
