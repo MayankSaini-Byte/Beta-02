@@ -15,7 +15,7 @@ const TITLES = {
   '/nutrition': ['Nutrition Planner', 'Daily food log and nutrition goals for each household member'],
   '/shopping': ['Smart Shopping', 'Manage your list, mark purchases, and hand off orders'],
   '/price-compare': ['Store Offers', 'Compare live store listings for your delivery area'],
-  '/scan': ['Scan & Detect', 'Expiry date checker + receipt scanner - your phone is the scanner'],
+  '/scan': ['Scan & Detect', 'Turn shopping receipts into kitchen stock'],
   '/devices': ['Storage', 'Track weighed stock and storage points'],
   '/analytics': ['Insights & Accuracy', 'Wastage, spend, accuracy and who did what'],
   '/vendors': ['Vendor Restocking', 'Prepare a restock message for your suppliers'],
@@ -143,7 +143,7 @@ export default function Layout() {
             <div className="avatar">{(user && user.name || 'U').slice(0, 1).toUpperCase()}</div>
             <div style={{ minWidth: 0 }}>
               <div className="user-name">{user && user.name}</div>
-              <div className="user-mail">{user && user.email}</div>
+              <div className="user-mail">{user?.username ? `@${user.username}` : 'KitchenSync account'}</div>
             </div>
             <button className="btn btn-ghost btn-icon" onClick={logout} title="Logout" style={{ marginLeft: 'auto' }}>
               <Icon name="logout" />

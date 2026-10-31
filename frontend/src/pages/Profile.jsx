@@ -15,8 +15,6 @@ const DIETS = [
   ['custom', 'All diets']
 ];
 const DEFAULT_DIET = 'veg';
-const CUISINES = ['North Indian', 'South Indian', 'Rajasthani', 'Gujarati', 'Maharashtrian', 'Bengali', 'Punjabi', 'Kashmiri', 'Northeast Indian', 'Coastal'];
-const TASTES = ['comfort', 'spicy', 'quick', 'healthy', 'high-protein'];
 
 function draftPerson(index, overrides = {}) {
   return {
@@ -71,7 +69,6 @@ export default function Profile() {
     weeklyBudget: 1500, goal: 'none', cuisines: [], allergies: [], tastes: [], ...(user?.household || {})
   });
   const [members, setMembers] = useState(() => peopleFromUser(user || {}));
-  const [customCuisine, setCustomCuisine] = useState('');
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -96,13 +93,6 @@ export default function Profile() {
 
   const householdSize = useMemo(() => members.length, [members]);
   const updatePerson = (id, patch) => setMembers((rows) => rows.map((person) => person.id === id ? { ...person, ...patch } : person));
-  const toggleValue = (field, value) => setHh((current) => ({
-    ...current,
-    [field]: (current[field] || []).includes(value)
-      ? current[field].filter((item) => item !== value)
-      : [...(current[field] || []), value]
-  }));
-
   const addPerson = () => {
     if (members.length >= 24) return toast('A profile can include up to 24 people', 'warn');
     setMembers((rows) => [...rows, draftPerson(rows.length)]);
@@ -174,7 +164,7 @@ export default function Profile() {
         <div>
           <div className="eyebrow">YOUR KITCHEN, YOUR WAY</div>
           <h2>Profile</h2>
-          <p>Update your account type, kitchen details, people, and the preferences that shape your workspace.</p>
+          <p>Update your account, delivery area, and the people in your household.</p>
         </div>
         <button className="btn btn-primary" onClick={saveProfile} disabled={saving}>
           <Icon name="check" /> {saving ? 'Saving…' : 'Save profile'}
@@ -188,8 +178,9 @@ export default function Profile() {
         </div>
         <div className="profile-account-grid">
           <label className="field"><span className="label">Your name</span><input className="input" value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label className="field"><span className="label">Email</span><input className="input" value={user?.email || ''} readOnly /></label>
+          <label className="field"><span className="label">Username</span><input className="input" value={user?.username || user?.name || ''} readOnly /></label>
           <label className="field"><span className="label">Workspace type</span><select className="input" value={accountType} onChange={(event) => { const next = event.target.value; setAccountType(next); setBusiness((current) => ({ ...current, businessType: next === 'service' ? 'tiffin' : 'restaurant' })); }}><option value="household">Household</option><option value="commercial">Commercial kitchen</option><option value="service">Food service · Tiffin / PG</option></select></label>
+          {accountType === 'household' && <label className="field"><span className="label">Delivery PIN code</span><input className="input" type="text" inputMode="numeric" autoComplete="postal-code" maxLength={6} value={hh.pincode || ''} onChange={(event) => setHh({ ...hh, pincode: event.target.value.replace(/\D/g, '').slice(0, 6) })} placeholder="6-digit PIN for Store Offers" /><small className="tiny muted">Used automatically to find nearby store prices.</small></label>}
         </div>
       </section>
 
@@ -201,46 +192,6 @@ export default function Profile() {
           <label className="field"><span className="label">Location / address</span><input className="input" value={business.address || ''} onChange={(event) => setBusiness({ ...business, address: event.target.value })} /></label>
           <label className="field"><span className="label">Approximate daily servings</span><input className="input" type="number" min="1" value={business.dailyServings || 0} onChange={(event) => setBusiness({ ...business, dailyServings: Number(event.target.value) })} /></label>
           <label className="field"><span className="label">Vendor WhatsApp number</span><input className="input" type="tel" value={business.vendorContact || ''} onChange={(event) => setBusiness({ ...business, vendorContact: event.target.value })} placeholder="Add country code for WhatsApp" /></label>
-        </div>
-      </section>}
-
-      {accountType === 'household' && <section className="profile-section">
-        <div className="profile-section-heading">
-          <div><div className="eyebrow">SHARED DEFAULTS</div><h3>Kitchen and meal preferences</h3><p>New people inherit this diet unless you set a personal preference below. Nutrition goals are set per person in Personal Profiles.</p></div>
-        </div>
-        <div className="profile-preference-grid">
-          <label className="field"><span className="label">Default food preference</span>
-            <select className="input" value={hh.diet || DEFAULT_DIET} onChange={(event) => setHh({ ...hh, diet: event.target.value })}>
-              {DIETS.filter(([value]) => value !== 'inherit').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label className="field"><span className="label">Religion / food practice</span><select className="input" value={hh.foodPractice || 'none'} onChange={(event) => setHh({ ...hh, foodPractice: event.target.value })}><option value="none">No additional practice</option><option value="jain">Jain preparation (no root vegetables)</option><option value="satvik">Satvik</option><option value="halal">Halal (avoid pork and alcohol)</option></select></label>
-          <label className="field"><span className="label">Home address</span><input className="input" value={hh.address || ''} onChange={(event) => setHh({ ...hh, address: event.target.value })} /></label>
-          <label className="field"><span className="label">Delivery PIN code</span><input className="input" type="text" inputMode="numeric" autoComplete="postal-code" maxLength={6} value={hh.pincode || ''} onChange={(event) => setHh({ ...hh, pincode: event.target.value.replace(/\D/g, '').slice(0, 6) })} placeholder="6-digit PIN for store searches" /></label>
-          <label className="field"><span className="label">Weekly grocery budget (₹)</span>
-            <input className="input" type="number" min="0" value={hh.weeklyBudget ?? 1500} onChange={(event) => setHh({ ...hh, weeklyBudget: Number(event.target.value) })} />
-          </label>
-          <label className="field"><span className="label">Fitness goal</span>
-            <select className="input" value={hh.goal || 'none'} onChange={(event) => setHh({ ...hh, goal: event.target.value })}>
-              <option value="none">No specific goal</option><option value="cut">Lose weight</option><option value="bulk">Build muscle</option><option value="maintain">Maintain</option>
-            </select>
-          </label>
-        </div>
-        <div className="profile-preference-group">
-          <span className="label">Ingredients the whole kitchen avoids</span>
-          <input className="input" value={(hh.allergies || []).join(', ')} onChange={(event) => setHh({ ...hh, allergies: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="For example: peanuts, sesame" />
-        </div>
-        <div className="profile-preference-group">
-          <span className="label">Favourite cuisines</span>
-          <div className="preference-chips">
-            {CUISINES.map((cuisine) => <button type="button" key={cuisine} className={`preference-chip ${(hh.cuisines || []).includes(cuisine) ? 'selected' : ''}`} aria-pressed={(hh.cuisines || []).includes(cuisine)} onClick={() => toggleValue('cuisines', cuisine)}>{cuisine}</button>)}
-            {(hh.cuisines || []).filter((cuisine) => !CUISINES.includes(cuisine)).map((cuisine) => <button type="button" key={cuisine} className="preference-chip selected" onClick={() => toggleValue('cuisines', cuisine)}>{cuisine} ×</button>)}
-          </div>
-          <div className="profile-custom-cuisine"><input className="input" value={customCuisine} onChange={(event) => setCustomCuisine(event.target.value)} placeholder="Add a cuisine" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const cuisine = customCuisine.trim(); if (cuisine && !(hh.cuisines || []).includes(cuisine)) setHh({ ...hh, cuisines: [...(hh.cuisines || []), cuisine] }); setCustomCuisine(''); } }} /><button className="btn" type="button" onClick={() => { const cuisine = customCuisine.trim(); if (cuisine && !(hh.cuisines || []).includes(cuisine)) setHh({ ...hh, cuisines: [...(hh.cuisines || []), cuisine] }); setCustomCuisine(''); }}><Icon name="plus" /> Add</button></div>
-        </div>
-        <div className="profile-preference-group">
-          <span className="label">What kind of meals do you enjoy?</span>
-          <div className="preference-chips">{TASTES.map((taste) => <button type="button" key={taste} className={`preference-chip ${(hh.tastes || []).includes(taste) ? 'selected' : ''}`} aria-pressed={(hh.tastes || []).includes(taste)} onClick={() => toggleValue('tastes', taste)}>{taste.replace('-', ' ')}</button>)}</div>
         </div>
       </section>}
 

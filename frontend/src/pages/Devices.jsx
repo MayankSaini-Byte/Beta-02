@@ -14,13 +14,34 @@ function timeAgo(iso) {
   return `${Math.round(s / 3600)}h ago`;
 }
 
+function TelemetryChart({ title, data, dataKey, unit, color }) {
+  const points = data.filter((row) => row[dataKey] !== null && row[dataKey] !== undefined && Number.isFinite(Number(row[dataKey])));
+  return (
+    <section className="device-telemetry-chart">
+      <b>{title}</b>
+      {points.length ? <div className="device-chart-canvas">
+        <ResponsiveContainer>
+          <LineChart data={points} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis dataKey="t" stroke="var(--faint)" fontSize={10} minTickGap={26} />
+            <YAxis stroke="var(--faint)" fontSize={10} width={45} tickFormatter={(value) => dataKey === 'grams' ? `${Math.round(value)}g` : `${value}${unit}`} />
+            <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)' }} formatter={(value) => [`${value} ${unit}`, title]} />
+            <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2.25} dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div> : <div className="device-chart-empty">No {title.toLowerCase()} readings have been received for this sensor yet.</div>}
+    </section>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Load-cell weighing station (real hardware: ESP32 + HX711)            */
 /* The server keeps the latest reading POSTed by the ESP32; the browser */
 /* only reads it, so the value applied to stock can't be faked or stale. */
 /* ------------------------------------------------------------------ */
-function WeighStation({ pantryItems, toast }) {
+function WeighStation({ pantryItems, devices, toast }) {
   const [live, setLive] = useState(null);        // {grams, stable, online, ts}
+  const [sensorId, setSensorId] = useState('scale1');
   const [itemId, setItemId] = useState('');
   const [mode, setMode] = useState('set');       // set | add
   const [containerWeight, setContainerWeight] = useState('');
@@ -32,20 +53,20 @@ function WeighStation({ pantryItems, toast }) {
     let stop = false;
     const tick = async () => {
       try {
-        const { data } = await api.get('/scale/latest');
+        const { data } = await api.get(`/scale/latest?device_id=${encodeURIComponent(sensorId)}`);
         if (!stop) setLive(data);
         if (!stop && itemId) {
           try {
-            const { data: rw } = await api.get(`/scale/reweigh/${itemId}`);
+            const { data: rw } = await api.get(`/scale/reweigh/${itemId}?device_id=${encodeURIComponent(sensorId)}`);
             if (!stop) setReweigh(rw);
           } catch { /* item deleted etc. */ }
         }
       } catch { /* offline */ }
     };
     tick();
-    const iv = setInterval(tick, 900);
+    const iv = setInterval(tick, 1500);
     return () => { stop = true; clearInterval(iv); };
-  }, [itemId]);
+  }, [itemId, sensorId]);
 
   const simulate = async () => {
     setBusy('sim');
@@ -59,7 +80,7 @@ function WeighStation({ pantryItems, toast }) {
   const weigh = async () => {
     setBusy('weigh');
     try {
-      const { data } = await api.post(`/scale/stock/${itemId}/weigh`, { mode, containerWeight: Number(containerWeight) || 0 });
+      const { data } = await api.post(`/scale/stock/${itemId}/weigh`, { mode, deviceId: sensorId, containerWeight: Number(containerWeight) || 0 });
       setResult(data);
       toast(data.message, 'ok', 'Weighed into stock');
     } catch (e) { toast(e.response?.data?.error || 'Weigh failed', 'err', 'Rejected'); }
@@ -68,13 +89,14 @@ function WeighStation({ pantryItems, toast }) {
 
   const canWeigh = live && live.online && live.stable && !!itemId;
   const selected = pantryItems.find((p) => p._id === itemId);
+  const pairedSensors = devices.filter((device) => device.source === 'physical' && device.hardwareId);
 
   return (
     <div className="card" style={{ padding: 16, marginBottom: 14, borderColor: 'var(--accent-deep)' }}>
       <div className="section-head" style={{ marginBottom: 8 }}>
         <div>
-          <h2 style={{ fontSize: 16 }}>Load-cell weighing station <span className="chip chip-ok" style={{ marginLeft: 6 }}>real hardware</span></h2>
-          <div className="sub">ESP32 + HX711 + load cell POSTs to <code>/api/scale/reading</code> every 0.5 s (firmware in <code>hardware/esp32_scale</code>). The server applies ITS OWN latest reading - the browser can't fake it.</div>
+          <h2 style={{ fontSize: 16 }}>Load-cell weighing station <span className={`chip ${live?.source === 'physical' ? 'chip-ok' : 'chip-warn'}`} style={{ marginLeft: 6 }}>{live?.source === 'physical' ? 'physical ESP32' : 'simulator'}</span></h2>
+          <div className="sub">Authenticated readings arrive through <code>/api/scale/reading</code>. The server applies its latest fresh, stable reading; the browser cannot submit a weight value.</div>
         </div>
         <span className={`status-pill status-${live && live.online ? 'online' : 'stale'}`}>
           <span className="pulse-dot" style={{ width: 6, height: 6, background: live && live.online ? 'var(--accent)' : 'var(--amber)', animation: live && live.online ? undefined : 'none' }} />
@@ -84,14 +106,31 @@ function WeighStation({ pantryItems, toast }) {
 
       <div className="device-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         <div className="plan-day">
-          <div className="tiny muted">live weight (net of nothing - raw)</div>
+          <label className="field"><span className="label">Sensor input</span>
+            <select className="select" value={sensorId} onChange={(event) => {
+              const nextId = event.target.value;
+              setSensorId(nextId);
+              const nextSensor = devices.find((device) => device.hardwareId === nextId);
+              setContainerWeight(String(nextSensor?.tareGrams || 0));
+            }}>
+              {!pairedSensors.some((device) => device.hardwareId === 'scale1') && <option value="scale1">Legacy station / simulator</option>}
+              {pairedSensors.map((device) => <option key={device.id} value={device.hardwareId}>{device.name} · {device.hardwareId}</option>)}
+            </select>
+          </label>
+          <div className="tiny muted mt-2">Live gross weight</div>
           <div className="weight-now">{live && live.grams != null ? `${live.grams} g` : '—'}</div>
+          {live?.grams != null && <div className="tiny muted">Net after saved tare: {live.netGrams} g · {(Number(live.netGrams || 0) / 1000).toFixed(2)} kg</div>}
           <div className={`chip ${live && live.stable ? 'chip-ok' : 'chip-warn'}`}>
             {live && live.stable ? 'Stable ✅' : 'Settling…'}
           </div>
           <div className="tiny muted mt-1">
             {live ? `${live.readings || 0} readings accepted · ${live.rejected || 0} rejected` : 'waiting for the first reading…'}
           </div>
+          <div className="sensor-current-environment">
+            <span><b>{live?.temperatureC == null ? '—' : `${live.temperatureC}°C`}</b><small>Temperature</small></span>
+            <span><b>{live?.humidityPercent == null ? '—' : `${live.humidityPercent}%`}</b><small>Humidity</small></span>
+          </div>
+          {live?.timestamp && <div className="tiny muted mt-1">Last reading {timeAgo(live.timestamp)}</div>}
         </div>
 
         <div className="plan-day" style={{ gridColumn: 'span 2' }}>
@@ -122,7 +161,7 @@ function WeighStation({ pantryItems, toast }) {
             <button className="btn btn-primary" onClick={weigh} disabled={!canWeigh || busy === 'weigh'}>
               <Icon name="scale" size={13} /> {busy === 'weigh' ? 'Weighing…' : 'Add weight to stock'}
             </button>
-            <button className="btn" onClick={simulate} disabled={busy === 'sim'} title="Demo fallback when the ESP32 isn't at the venue">
+            <button className="btn" onClick={simulate} disabled={busy === 'sim' || sensorId !== 'scale1' || live?.source === 'physical'} title="Demo fallback when no physical sensor is selected">
               <Icon name="refresh" size={13} /> Simulate sensor
             </button>
             {!live?.online && <span className="tiny muted" style={{ alignSelf: 'center' }}>Waiting for the ESP32 - press Simulate sensor for the demo.</span>}
@@ -160,15 +199,20 @@ export default function Devices() {
   const [linkFor, setLinkFor] = useState(null);
   const [pantryItems, setPantryItems] = useState([]);
   const [newName, setNewName] = useState('');
+  const [newHardwareId, setNewHardwareId] = useState('');
 
   const load = async () => {
     const { data } = await api.get('/devices');
     setData(data);
   };
   useEffect(() => {
-    load().catch(() => toast('Could not load devices', 'err'));
+    let active = true;
+    const refresh = () => api.get('/devices').then(({ data }) => { if (active) setData(data); }).catch(() => {});
+    refresh().catch(() => toast('Could not load devices', 'err'));
+    const interval = setInterval(refresh, 2000);
     api.get('/pantry').then(({ data }) => setPantryItems(data.items)).catch(() => {});
-  }, []);
+    return () => { active = false; clearInterval(interval); };
+  }, [toast]);
 
   const simulate = async (id, mode) => {
     setBusy(id + mode);
@@ -195,7 +239,7 @@ export default function Devices() {
     setBusy(id + 'hist');
     try {
       const { data } = await api.get(`/devices/${id}/history`);
-      setHistory({ id, name, series: data.series.map((s) => ({ ...s, t: new Date(s.at).getHours() + ':00' })) });
+      setHistory({ id, name, source: data.source, series: data.series.map((s) => ({ ...s, t: new Date(s.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) })) });
     } catch { toast('Could not load history', 'err'); }
     setBusy('');
   };
@@ -203,10 +247,11 @@ export default function Devices() {
   const createDevice = async () => {
     if (!newName.trim()) return;
     try {
-      await api.post('/devices', { name: newName.trim() });
+      const { data } = await api.post('/devices', { name: newName.trim(), hardwareId: newHardwareId.trim() || undefined });
       setNewName('');
-      toast('Storage point added with demo readings', 'ok', 'Storage added');
-      load();
+      setNewHardwareId('');
+      toast(data.source === 'physical' ? 'Paired. Set the same Device ID in the ESP32 firmware.' : 'Storage point added with simulator readings.', 'ok', 'Storage added');
+      await load();
     } catch (e) { toast(e.response?.data?.error || 'Could not pair', 'err'); }
   };
 
@@ -231,10 +276,10 @@ export default function Devices() {
 
   return (
     <div>
-      <WeighStation pantryItems={pantryItems} toast={toast} />
+      <WeighStation pantryItems={pantryItems} devices={data.devices} toast={toast} />
 
       <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '3px solid var(--plum)' }}>
-        <div className="small muted"><b style={{ color: 'var(--text)' }}>Storage and weighing.</b> Link a storage point to an inventory item, then record weights here. Sensor readings are simulated in this demo.</div>
+        <div className="small muted"><b style={{ color: 'var(--text)' }}>Live storage monitoring.</b> Pair a physical ESP32 by its Device ID, or leave the ID blank to use the simulator. Readings never change stock until you choose a weighing action.</div>
       </div>
 
       {data.conflicts.length > 0 && (
@@ -259,8 +304,9 @@ export default function Devices() {
         </div>
       )}
 
-      <div className="flex wrap mb-2" style={{ gap: 8 }}>
-        <input className="input" style={{ maxWidth: 240 }} placeholder="Storage point (e.g. Rice bin)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} />
+      <div className="device-pair-form card mb-2">
+        <label className="field"><span className="label">Storage point name</span><input className="input" placeholder="e.g. Rice container" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
+        <label className="field"><span className="label">Physical Device ID <em>Optional · leave blank for simulator</em></span><input className="input" placeholder="Must match DEVICE_ID in firmware" value={newHardwareId} onChange={(e) => setNewHardwareId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
         <button className="btn btn-primary" onClick={createDevice}><Icon name="chip" /> Add storage point</button>
       </div>
 
@@ -280,7 +326,14 @@ export default function Devices() {
               </span>
             </div>
 
-            <div className="weight-now">{d.grams != null ? `${d.grams} g` : '—'}</div>
+            <div className="device-source-line"><span className={`chip ${d.source === 'physical' ? 'chip-ok' : ''}`}>{d.source === 'physical' ? 'PHYSICAL ESP32' : 'SIMULATOR'}</span>{d.hardwareId && <code>{d.hardwareId}</code>}</div>
+            <div className="weight-now">{(d.source === 'physical' ? d.netGrams : d.grams) != null ? `${d.source === 'physical' ? d.netGrams : d.grams} g` : '—'}</div>
+            <div className="device-environment-row">
+              <span><Icon name="thermometer" size={13} /><b>{d.temperatureC == null ? '—' : `${d.temperatureC}°C`}</b><small>Temperature</small></span>
+              <span><Icon name="droplet" size={13} /><b>{d.humidityPercent == null ? '—' : `${d.humidityPercent}%`}</b><small>Humidity</small></span>
+              <span><Icon name="scale" size={13} /><b>{d.stable ? 'Stable' : 'Unstable'}</b><small>Weight</small></span>
+            </div>
+            <div className="tiny muted">Last reading: {timeAgo(d.lastReadingAt || d.lastSeen)}{d.tareGrams ? ` · tare ${d.tareGrams} g` : ''}</div>
             {d.linkedItem ? (
               <div className="small muted">linked: <b style={{ color: 'var(--text)' }}>{d.linkedItem.name}</b> · app says {Math.round(d.linkedItem.appQty)} {d.linkedItem.unit} ({d.linkedItem.state})</div>
             ) : (
@@ -303,8 +356,10 @@ export default function Devices() {
             </div>
 
             <div className="flex wrap mt-2" style={{ gap: 7 }}>
-              <button className="btn btn-sm" onClick={() => simulate(d.id, 'drift')} disabled={busy === d.id + 'drift'}><Icon name="refresh" size={12} /> Simulate</button>
-              <button className="btn btn-sm" onClick={() => simulate(d.id, 'refill')} disabled={busy === d.id + 'refill'}>Refill</button>
+              {d.source !== 'physical' && <>
+                <button className="btn btn-sm" onClick={() => simulate(d.id, 'drift')} disabled={busy === d.id + 'drift'}><Icon name="refresh" size={12} /> Simulate</button>
+                <button className="btn btn-sm" onClick={() => simulate(d.id, 'refill')} disabled={busy === d.id + 'refill'}>Refill</button>
+              </>}
               <button className="btn btn-sm" onClick={() => tare(d.id)} disabled={busy === d.id + 'tare'}><Icon name="scale" size={12} /> Tare</button>
               <button className="btn btn-sm" onClick={() => showHistory(d.id, d.name)} disabled={busy === d.id + 'hist'}><Icon name="analytics" size={12} /> Chart</button>
             </div>
@@ -315,21 +370,14 @@ export default function Devices() {
       {history && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card mt-3" style={{ padding: 16 }}>
           <div className="section-head" style={{ marginBottom: 8 }}>
-            <h2 style={{ fontSize: 16 }}>Weight over time · {history.name}</h2>
+            <div><h2 style={{ fontSize: 16 }}>Sensor history · {history.name}</h2><div className="small muted">{history.source === 'physical' ? 'Recorded ESP32 readings' : 'Simulator weight history; environmental readings are unavailable'}</div></div>
             <button className="btn btn-ghost btn-icon" onClick={() => setHistory(null)}><Icon name="x" /></button>
           </div>
-          <div style={{ width: '100%', height: 240 }}>
-            <ResponsiveContainer>
-              <LineChart data={history.series} margin={{ top: 6, right: 12, bottom: 0, left: -12 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="t" stroke="var(--faint)" fontSize={11} />
-                <YAxis stroke="var(--faint)" fontSize={11} tickFormatter={(v) => `${Math.round(v / 100) / 10}kg`} />
-                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)' }} formatter={(v) => [`${v} g`, 'weight']} />
-                <Line type="monotone" dataKey="grams" stroke="var(--accent)" strokeWidth={2.5} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="device-telemetry-history-grid">
+            <TelemetryChart title="Weight" data={history.series} dataKey="grams" unit="g" color="var(--accent)" />
+            <TelemetryChart title="Temperature" data={history.series} dataKey="temperatureC" unit="°C" color="var(--amber)" />
+            <TelemetryChart title="Humidity" data={history.series} dataKey="humidityPercent" unit="% RH" color="var(--plum)" />
           </div>
-          <div className="small muted mt-1">Drop comes from cooking (marked-done meals) and refill jumps appear when you restock - this is the "how do you know it works" evidence trail.</div>
         </motion.div>
       )}
 

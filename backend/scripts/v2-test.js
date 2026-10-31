@@ -47,7 +47,8 @@ async function raw(method, path, body, headers = {}) {
 
   // 2) planner: starts today, budget constraint, explainers
   const { data: pl } = await req('GET', '/planner', null, T);
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   ok('planner starts today', pl.plan.days[0].date === today, pl.plan.days[0].date);
   ok('no past days', pl.plan.days.every((d) => d.date >= today));
   ok('budget check present', !!pl.plan.summary.budget && typeof pl.plan.summary.budget.fits === 'boolean');
@@ -141,6 +142,9 @@ async function raw(method, path, body, headers = {}) {
   ok('handoff deep links', handoff.items.length === 1 && String(handoff.items[0].url).includes('blinkit.com'));
 
   // 7b) weighing station: reading -> guards -> weigh -> reweigh
+  // Scale and storage routes are intentionally limited to commercial/service workspaces.
+  const { data: commercialProfile } = await req('PUT', '/auth/me', { accountType: 'commercial' }, T);
+  ok('device tools require a commercial workspace', commercialProfile.user.accountType === 'commercial');
   const bad = await raw('POST', '/scale/reading', { device_id: 'scale1', grams: -999, stable: true }, { 'x-device-key': 'wrong' });
   ok('scale bad key -> 401', bad.status === 401);
   const junk = await raw('POST', '/scale/reading', { device_id: 'scale1', grams: -999, stable: true }, { 'x-device-key': 'secret-device-key' });
@@ -200,7 +204,7 @@ async function raw(method, path, body, headers = {}) {
 
   // 12) persistence across restart is Mongo-backed (file/memory independent): sanity check db mode
   const { data: me } = await req('GET', '/auth/me', null, T);
-  ok('auth/me works with ObjectId token', !!me.user && me.user.email === 'demo@kitchensync.app');
+  ok('auth/me works without exposing email', !!me.user && me.user.name === 'Demo Family' && me.user.email === undefined);
 
   console.log('-------------------------');
   console.log(`PASS=${pass} FAIL=${fail}`);

@@ -69,14 +69,14 @@ export function AppProvider({ children }) {
     return () => clearInterval(iv);
   }, [token, refreshNotifs]);
 
-  const login = async (email, password) => {
-    const { data } = await api.post('/auth/login', { email, password });
+  const login = async (name, password) => {
+    const { data } = await api.post('/auth/login', { name, password });
     persist(data.token, data.user, data.mode);
     return data;
   };
 
-  const register = async (name, email, password, kitchen = {}) => {
-    const { data } = await api.post('/auth/register', { name, email, password, ...kitchen });
+  const register = async (name, password, kitchen = {}) => {
+    const { data } = await api.post('/auth/register', { name, password, ...kitchen });
     persist(data.token, data.user, data.mode);
     return data;
   };

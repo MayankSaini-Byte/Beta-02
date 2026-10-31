@@ -111,9 +111,9 @@ export default function RecipeDetail() {
             </div>
             {recipe.nutrition && (
               <div className="macros">
-                <span className="macro"><b style={{ color: 'var(--terra)', fontSize: 15 }}>{recipe.nutrition.protein}g</b> protein</span>
+                <span className="macro macro-protein"><b style={{ fontSize: 15 }}>{recipe.nutrition.protein}g</b> protein</span>
                 <span className="macro"><b style={{ fontSize: 15 }}>{recipe.nutrition.carbs}g</b> carbs</span>
-                <span className="macro"><b style={{ fontSize: 15 }}>{recipe.nutrition.fat}g</b> fat</span>
+                <span className="macro macro-fat"><b style={{ fontSize: 15 }}>{recipe.nutrition.fat}g</b> fat</span>
                 <span className="macro"><b style={{ fontSize: 15 }}>{recipe.nutrition.fiber}g</b> fiber</span>
                 <span className="small faint">per serving</span>
               </div>

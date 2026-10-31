@@ -9,7 +9,7 @@ export default function Login() {
   const { login, register, demo, toast } = useApp();
   const nav = useNavigate();
   const [tab, setTab] = useState('login');
-  const [form, setForm] = useState({ name: '', email: '', password: '', accountType: 'household' });
+  const [form, setForm] = useState({ name: '', password: '', accountType: 'household' });
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
@@ -17,10 +17,10 @@ export default function Login() {
     setBusy(true);
     try {
       if (tab === 'login') {
-        const result = await login(form.email, form.password);
+        const result = await login(form.name, form.password);
         nav(result.user?.onboardingComplete === false ? '/onboarding' : '/');
       } else {
-        await register(form.name, form.email, form.password, { accountType: form.accountType });
+        await register(form.name, form.password, { accountType: form.accountType });
         nav('/onboarding');
       }
     } catch (err) {
@@ -77,12 +77,10 @@ export default function Login() {
           </div>
 
           <form onSubmit={submit} className="auth-form">
-            {tab === 'register' && (
-              <div className="field auth-field">
-                <label className="label">Your name or kitchen name</label>
-                <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Sharma Kitchen" required />
-              </div>
-            )}
+            <div className="field auth-field">
+              <label className="label">{tab === 'login' ? 'Name' : 'Your name or kitchen name'}</label>
+              <input className="input" type="text" autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tab === 'login' ? 'Enter your name' : 'Sharma Kitchen'} required minLength={2} maxLength={80} />
+            </div>
             {tab === 'register' && <div className="field">
               <label className="label">How will you use KitchenSync?</label>
               <div className="kitchen-type-grid">
@@ -94,10 +92,6 @@ export default function Login() {
               </div>
             </div>}
             {tab === 'register' && <p className="small muted">Next, we’ll ask a few details for your {form.accountType === 'household' ? 'household' : form.accountType === 'commercial' ? 'business' : 'food service'} profile.</p>}
-            <div className="field auth-field">
-              <label className="label">Email</label>
-              <input className="input" type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" required />
-            </div>
             <div className="field auth-field">
               <label className="label">Password</label>
               <input className="input" type="password" autoComplete={tab === 'login' ? 'current-password' : 'new-password'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={tab === 'login' ? 'Enter your password' : 'At least 6 characters'} required minLength={tab === 'register' ? 6 : undefined} />

@@ -20,6 +20,7 @@ const MemberSchema = new Schema(
 const UserSchema = new Schema(
   {
     name: { type: String, required: true },
+    username: { type: String, lowercase: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
     accountType: { type: String, enum: ['household', 'commercial', 'service'], default: 'household' },

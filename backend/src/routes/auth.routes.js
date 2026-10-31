@@ -28,7 +28,7 @@ function normalizeMember(person, index, previous = {}) {
 }
 
 function sanitize(user) {
-  const { passwordHash, ...rest } = user;
+  const { passwordHash, email, ...rest } = user;
   const accountType = ['household', 'commercial', 'service'].includes(rest.accountType)
     ? rest.accountType
     : rest.household?.kitchenType === 'commercial' ? 'commercial' : rest.household?.kitchenType === 'hostel' ? 'service' : 'household';
@@ -36,7 +36,7 @@ function sanitize(user) {
 }
 
 function sign(user) {
-  return jwt.sign({ sub: user._id, email: user.email }, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES });
+  return jwt.sign({ sub: user._id, username: user.username || null }, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES });
 }
 
 /** One-click demo login - creates the demo household on first use */
@@ -60,18 +60,27 @@ router.post('/demo', asyncH(async (req, res) => {
 }));
 
 router.post('/register', asyncH(async (req, res) => {
-  const { name, email, password, accountType = 'household' } = req.body || {};
-  if (!name || !email || !password) throw httpError(400, 'name, email and password are required');
+  const { name, password, accountType = 'household' } = req.body || {};
+  const cleanName = String(name || '').trim();
+  if (!cleanName || !password) throw httpError(400, 'Name and password are required');
+  if (cleanName.length > 80) throw httpError(400, 'Name must be 80 characters or fewer');
   if (String(password).length < 6) throw httpError(400, 'Password must be at least 6 characters');
   if (!['household', 'commercial', 'service'].includes(accountType)) throw httpError(400, 'Choose a valid account type');
 
   const users = req.db.col('users');
-  const existing = await users.findOne({ email: String(email).toLowerCase().trim() });
-  if (existing) throw httpError(409, 'An account with this email already exists');
+  // These are internal compatibility identifiers for legacy schemas only.
+  // The user supplies and signs in with their name; no email is requested.
+  const baseUsername = cleanName.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'kitchen-user';
+  let username = baseUsername;
+  if (await users.findOne({ username })) username = `${baseUsername.slice(0, 23)}-${crypto.randomBytes(4).toString('hex')}`;
+  let storedEmail = `${username}@local.kitchensync`;
+  if (await users.findOne({ email: storedEmail })) storedEmail = `${username}.${crypto.randomUUID()}@local.kitchensync`;
 
   const user = await users.insertOne({
-    name: String(name).trim(),
-    email: String(email).toLowerCase().trim(),
+    name: cleanName,
+    username,
+    // Keep the legacy unique account key internally; the UI never asks for or exposes it.
+    email: storedEmail,
     passwordHash: bcrypt.hashSync(String(password), 10),
     accountType,
     onboardingComplete: false,
@@ -86,13 +95,18 @@ router.post('/register', asyncH(async (req, res) => {
 }));
 
 router.post('/login', asyncH(async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) throw httpError(400, 'email and password are required');
+  const { password } = req.body || {};
+  const identifier = String(req.body?.name || req.body?.username || req.body?.email || '').trim().toLowerCase();
+  if (!identifier || !password) throw httpError(400, 'Name and password are required');
   const users = req.db.col('users');
-  const user = await users.findOne({ email: String(email).toLowerCase().trim() });
-  if (!user || !bcrypt.compareSync(String(password), user.passwordHash)) {
-    throw httpError(401, 'Invalid email or password');
-  }
+  const accounts = await users.find({});
+  const candidates = [
+    ...accounts.filter((account) => String(account.username || '').trim().toLowerCase() === identifier),
+    ...accounts.filter((account) => String(account.email || '').trim().toLowerCase() === identifier),
+    ...accounts.filter((account) => String(account.name || '').trim().toLowerCase() === identifier)
+  ];
+  const user = candidates.find((account) => bcrypt.compareSync(String(password), account.passwordHash));
+  if (!user) throw httpError(401, 'Invalid name or password');
   res.json({ token: sign(user), user: sanitize(user), mode: req.db.kind });
 }));
 

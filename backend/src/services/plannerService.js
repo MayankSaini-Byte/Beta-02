@@ -20,21 +20,12 @@ const CATALOG = require('../data/catalog');
 const { hash } = require('../utils/text');
 const { toBase, toCommercial } = require('../utils/units');
 const { addDaysISO, dayLabel, daysUntil, todayISO } = require('../utils/dates');
+const { recipeMatchesDiet } = require('../utils/recipeDiet');
 
 const byKey = new Map(CATALOG.map((c) => [c.key, c]));
 const SLOTS = ['breakfast', 'lunch', 'dinner'];
 const MAX_LINE_COST = 3000; // rupees - anything above this per line is flagged implausible
 
-function dietAllows(userDiet, recipeDiet) {
-  if (userDiet === 'custom') return true;
-  if (userDiet === 'jain') return recipeDiet === 'veg';
-  if (userDiet === 'vegan') return recipeDiet === 'veg';
-  if (userDiet === 'nonveg') return true;
-  if (userDiet === 'egg') return recipeDiet === 'veg' || recipeDiet === 'egg';
-  return recipeDiet === 'veg';
-}
-
-const JAIN_AVOID = new Set(['onion', 'garlic', 'ginger', 'ginger-garlic-paste', 'potato', 'sweet-potato', 'carrot', 'beetroot', 'radish']);
 function cuisineMatch(recipe, preferences) {
   if (!preferences.length) return false;
   const cuisine = String(recipe.cuisine || '').toLowerCase();
@@ -46,10 +37,7 @@ function cuisineMatch(recipe, preferences) {
 }
 
 function dietRecipeAllows(diet, recipe) {
-  if (!dietAllows(diet, recipe.diet)) return false;
-  if (diet === 'jain') return !(recipe.ingredients || []).some((ingredient) => JAIN_AVOID.has(ingredient.key));
-  if (diet === 'vegan') return !(recipe.ingredients || []).some((ingredient) => ['milk', 'curd', 'paneer', 'butter', 'cheese', 'ghee', 'yogurt'].includes(ingredient.key));
-  return true;
+  return recipeMatchesDiet(recipe, diet);
 }
 
 function householdRecipeAllows(household, recipe, members = []) {

@@ -130,13 +130,13 @@ Pipeline details: unit regex + table (same converter as recipes), fuzzy match (D
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/scale/reading` | **device auth** (`x-device-key` header) `{device_id, grams, stable}` → 204. Implausible values → 422 + rejected counter |
-| GET | `/scale/latest` | `{grams, stable, ts, online, readings, rejected}` - poll every ~800 ms |
+| POST | `/scale/reading` | **device auth** (`x-device-key` header) `{device_id, grams, stable, temperature_c?, humidity_percent?, timestamp_ms?, reading_id?}` → 204. Valid environmental ranges: −40–80 °C, 0–100% RH. Pair `device_id` in Devices first (legacy `scale1` remains accepted); duplicate ID returns 204, stale/out-of-order returns 409, invalid readings 422 |
+| GET | `/scale/latest?device_id=` | JWT + commercial/service account; `{deviceId, grams, stable, temperatureC, humidityPercent, source, timestamp, online, readings, rejected}`. `device_id` defaults to legacy `scale1` |
 | POST | `/scale/simulate` | venue fallback: fabricates a fresh **server-side** stable reading |
-| POST | `/scale/stock/:id/weigh` | `{mode:"set"\|"add", containerWeight}` - fresh (<3 s) + stable required (409s), net ≥ 0 (400) → stock updated + audit |
-| GET | `/scale/reweigh/:itemId` | expected (app) vs measured (scale) diff + last meal deduction - the post-cook accuracy check |
+| POST | `/scale/stock/:id/weigh` | `{mode:"set"\|"add", deviceId?, containerWeight?}` - fresh (<3 s) + stable required (409s); uses paired device tare if containerWeight omitted; net ≥ 0 (400) → stock updated + audit |
+| GET | `/scale/reweigh/:itemId?device_id=` | expected (app) vs measured net scale weight diff + last meal deduction - the post-cook accuracy check |
 
-Firmware + wiring: `hardware/` (ESP32 + HX711 + bar load cell).
+Physical firmware posts weights and DHT22 environment data through the same device-key-authenticated route. The server persists timestamped history using the selected database driver; readings do not change pantry stock without a user action. Firmware, exact wiring, calibration and local-network setup: [`hardware/README.md`](../hardware/README.md).
 
 ## Analytics & notifications
 
@@ -194,12 +194,12 @@ Firmware + wiring: `hardware/` (ESP32 + HX711 + bar load cell).
 ### IoT / Devices
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/devices` | containers + live weight, battery, wifi, lastSeen, `status` (online/stale), conflicts |
-| POST | `/api/devices` | pair container `{name, pantryItemId?}` |
+| GET | `/api/devices` | paired containers + latest gross/net weight, stability, temperature, humidity, physical/simulator source, last reading, connectivity, conflicts |
+| POST | `/api/devices` | pair container `{name, hardwareId?, pantryItemId?}`. Set `hardwareId` equal to firmware `device_id` for physical sensors; omit for simulator |
 | POST | `/api/devices/:id/link` | `{pantryItemId}` |
 | POST | `/api/devices/:id/tare` | zero the scale |
 | POST | `/api/devices/:id/simulate` | `{mode:"drift|empty|refill|nonsense"}` - venue fallback; nonsense readings are rejected and flagged |
-| GET | `/api/devices/:id/history` | weight time-series |
+| GET | `/api/devices/:id/history` | up to 200 persisted readings: weight, stability, temperature and humidity time-series |
 | POST | `/api/devices/conflicts/:deviceId/resolve` | `{use:"sensor"|"app"}` |
 
 ### Members, activity, receipts

@@ -1,85 +1,222 @@
 /*
- * KitchenSync load-cell weighing station
- * ESP32 + HX711 + bar load cell -> POSTs stable net weight to the Node backend.
+ * KitchenSync physical sensor node: ESP32 + HX711 + 5 kg load cell + DHT22.
  *
- * Library: "HX711" by bogde (Arduino Library Manager)
- * Board:   any common 30-pin ESP32 dev board
+ * Wiring (ESP32 DevKit V1):
+ *   HX711 DT -> GPIO16, SCK -> GPIO4, VCC -> 3V3, GND -> GND
+ *   DHT22 DATA -> GPIO22, VCC -> 3V3, GND -> GND
+ *   Active buzzer + -> GPIO21, - -> GND
+ *   Load cell: Red E+, Black E-, Green A+, White A-
  *
- * The backend keeps the latest reading server-side; the browser only reads it,
- * so the value applied to stock can't be faked by the client or go stale.
- * Backend endpoint contract (see backend/src/routes/scale.routes.js):
- *   POST /api/scale/reading   header x-device-key   body { device_id, grams, stable }
- *   -> 204 on accepted, 401 bad key, 422 implausible reading
+ * Pair a physical device in KitchenSync's Devices page and set DEVICE_ID to
+ * the same Physical Device ID. Configure Wi-Fi, laptop LAN IP and DEVICE_KEY
+ * below before uploading. Never commit real credentials to the repository.
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <time.h>
 #include "HX711.h"
+#include <DHT.h>
 
-// ---- Wi-Fi (venue tip: use your phone's hotspot for laptop + ESP32 + phone) ----
-const char* WIFI_SSID  = "YOUR_WIFI";
-const char* WIFI_PASS  = "YOUR_PASS";
+// -------- Local network configuration --------
+const char* WIFI_SSID = "YOUR_WIFI_NAME";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char* SERVER_HOST = "YOUR_LAPTOP_LAN_IP"; // e.g. 192.168.1.25; do not use localhost
+constexpr uint16_t SERVER_PORT = 5000;
+const char* API_PATH = "/api/scale/reading";
+const char* DEVICE_KEY = "REPLACE_WITH_DEVICE_KEY_FROM_BACKEND_ENV";
+const char* DEVICE_ID = "rice-scale-01"; // must exactly match the ID paired in Devices
 
-// ---- Backend (LAN IP of the laptop running the backend, NOT localhost) ----
-const char* SERVER     = "http://192.168.1.20:5000/api/scale/reading";
-const char* DEVICE_KEY = "secret-device-key";   // must match backend DEVICE_KEY env
+// -------- Exact GPIO map --------
+constexpr uint8_t HX711_DT = 16;
+constexpr uint8_t HX711_SCK = 4;
+constexpr uint8_t BUZZER_PIN = 21;
+constexpr uint8_t DHT_PIN = 22;
+constexpr uint8_t DHT_TYPE = DHT22;
 
-// ---- Pins (HX711 -> ESP32) ----
-const int DT       = 16;   // HX711 DT  -> GPIO 16
-const int SCK_PIN  = 4;    // HX711 SCK -> GPIO 4
-const int TARE_BTN = 13;   // optional push button to GND
+// Set after calibration with a known weight. Keep the sign that makes weight rise.
+constexpr float CALIBRATION_FACTOR = 420.0f;
+constexpr float BUZZER_THRESHOLD_GRAMS = 1000.0f;
 
-float CAL_FACTOR = 420.0;  // set after calibration (see hardware/README.md)
+// The DHT22 should not be sampled more frequently than every 2 seconds.
+constexpr uint32_t DHT_INTERVAL_MS = 2500;
+constexpr uint32_t SEND_INTERVAL_MS = 2000;
+constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;
+constexpr uint8_t STABILITY_SAMPLES = 10;
+constexpr float STABILITY_RANGE_GRAMS = 2.0f;
 
 HX711 scale;
-float buf[10];
-int bi = 0;
+DHT dht(DHT_PIN, DHT_TYPE);
+WiFiClient wifiClient;
+
+float samples[STABILITY_SAMPLES] = {};
+uint8_t sampleIndex = 0;
+uint8_t samplesCollected = 0;
+float temperatureC = NAN;
+float humidityPercent = NAN;
+uint32_t lastDhtMs = 0;
+uint32_t lastSendMs = 0;
+uint32_t lastWifiAttemptMs = 0;
+uint32_t readingSequence = 0;
+uint32_t bootId = 0;
+bool scaleTared = false;
+bool ntpStarted = false;
+
+void maintainWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!ntpStarted) {
+      configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+      ntpStarted = true;
+    }
+    return;
+  }
+
+  if (millis() - lastWifiAttemptMs < WIFI_RETRY_INTERVAL_MS) return;
+  lastWifiAttemptMs = millis();
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASS); // asynchronous; the sensor loop keeps running
+  Serial.printf("[WiFi] Reconnecting to %s...\n", WIFI_SSID);
+}
+
+bool isStable() {
+  if (samplesCollected < STABILITY_SAMPLES) return false;
+  float lowest = samples[0];
+  float highest = samples[0];
+  for (uint8_t i = 1; i < STABILITY_SAMPLES; ++i) {
+    lowest = min(lowest, samples[i]);
+    highest = max(highest, samples[i]);
+  }
+  return highest - lowest <= STABILITY_RANGE_GRAMS;
+}
+
+void readEnvironmentIfDue() {
+  if (millis() - lastDhtMs < DHT_INTERVAL_MS) return;
+  lastDhtMs = millis();
+  const float nextHumidity = dht.readHumidity();
+  const float nextTemperature = dht.readTemperature();
+  if (isnan(nextHumidity) || isnan(nextTemperature) || nextHumidity < 0 || nextHumidity > 100 || nextTemperature < -40 || nextTemperature > 80) {
+    Serial.println("[DHT22] Read failed; keeping the last valid environmental sample.");
+    return;
+  }
+  temperatureC = nextTemperature;
+  humidityPercent = nextHumidity;
+}
+
+String makePayload(float grams, bool stable) {
+  String payload;
+  payload.reserve(240);
+  payload = "{\"device_id\":\"";
+  payload += DEVICE_ID;
+  payload += "\",\"reading_id\":\"";
+  payload += String(bootId, HEX);
+  payload += "-";
+  payload += String(++readingSequence);
+  payload += "\",\"grams\":";
+  payload += String(grams, 1);
+  payload += ",\"stable\":";
+  payload += stable ? "true" : "false";
+  payload += ",\"temperature_c\":";
+  payload += isnan(temperatureC) ? "null" : String(temperatureC, 1);
+  payload += ",\"humidity_percent\":";
+  payload += isnan(humidityPercent) ? "null" : String(humidityPercent, 1);
+
+  // Include device time when NTP has synchronized. The server validates its age.
+  const time_t epoch = time(nullptr);
+  if (epoch > 1700000000) {
+    const uint64_t timestampMs = (static_cast<uint64_t>(epoch) * 1000ULL) + (millis() % 1000);
+    char timestampBuffer[24];
+    snprintf(timestampBuffer, sizeof(timestampBuffer), "%llu", static_cast<unsigned long long>(timestampMs));
+    payload += ",\"timestamp_ms\":";
+    payload += timestampBuffer;
+  }
+  payload += "}";
+  return payload;
+}
+
+void postReading(float grams, bool stable) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[HTTP] Not sent; Wi-Fi is offline. The next sample will retry.");
+    return;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(800);
+  http.setTimeout(1200); // bound a slow local network so sampling resumes promptly
+  const String url = String("http://") + SERVER_HOST + ":" + String(SERVER_PORT) + API_PATH;
+  if (!http.begin(wifiClient, url)) {
+    Serial.println("[HTTP] Could not open the KitchenSync URL.");
+    return;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-key", DEVICE_KEY);
+  const String payload = makePayload(grams, stable);
+  const int status = http.POST(payload);
+  if (status == 204) {
+    Serial.println("[HTTP] Sensor reading accepted by KitchenSync.");
+  } else if (status > 0) {
+    Serial.printf("[HTTP] KitchenSync returned %d: %s\n", status, http.getString().c_str());
+  } else {
+    Serial.printf("[HTTP] Request failed: %s\n", http.errorToString(status).c_str());
+  }
+  http.end();
+}
 
 void setup() {
   Serial.begin(115200);
-  pinMode(TARE_BTN, INPUT_PULLUP);
-  scale.begin(DT, SCK_PIN);
-  scale.set_scale(CAL_FACTOR);
-  scale.tare();                       // assume the empty platform is zero
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) { delay(300); Serial.print('.'); }
-  Serial.println("\n[WiFi] connected");
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  bootId = esp_random();
+
+  dht.begin();
+  scale.begin(HX711_DT, HX711_SCK);
+  scale.set_scale(CALIBRATION_FACTOR);
+  Serial.println("[HX711] Keep the empty platform unloaded for startup auto-tare.");
+  const uint32_t tareStarted = millis();
+  while (!scale.is_ready() && millis() - tareStarted < 8000) delay(20);
+  if (scale.is_ready()) {
+    scale.tare(15);
+    scaleTared = true;
+    Serial.println("[HX711] Startup tare complete.");
+  } else {
+    Serial.println("[HX711] Not ready yet; startup tare will retry when it responds.");
+  }
+
+  WiFi.setSleep(false);
+  lastWifiAttemptMs = millis() - WIFI_RETRY_INTERVAL_MS;
+  maintainWiFi();
+  Serial.println("[KitchenSync] Sensor node started. Serial Monitor: 115200 baud.");
 }
 
 void loop() {
-  // physical tare button (one leg GPIO 13, other leg GND)
-  if (digitalRead(TARE_BTN) == LOW) { scale.tare(); delay(500); }
+  maintainWiFi();
+  readEnvironmentIfDue();
 
-  float g = scale.get_units(5);       // average of 5 reads
-  if (g < 0 && g > -2) g = 0;         // absorb tiny negative drift
-  buf[bi++ % 10] = g;
-
-  // stability: within 2 g over the last 10 reads
-  float mn = buf[0], mx = buf[0];
-  for (int i = 1; i < 10; i++) { mn = min(mn, buf[i]); mx = max(mx, buf[i]); }
-  bool stable = (mx - mn) < 2.0 && bi >= 10;
-
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(SERVER);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("x-device-key", DEVICE_KEY);
-    String body = "{\"device_id\":\"scale1\",\"grams\":" + String(g, 1) +
-                  ",\"stable\":" + (stable ? "true" : "false") + "}";
-    int code = http.POST(body);
-    http.end();
-    if (code != 204) Serial.printf("[http] POST -> %d\n", code);
+  if (!scale.is_ready()) {
+    digitalWrite(BUZZER_PIN, LOW);
+    return;
   }
-  delay(500);
-}
+  if (!scaleTared) {
+    scale.tare(15); // one-time recovery calibration after an HX711 startup delay
+    scaleTared = true;
+    Serial.println("[HX711] Startup tare complete.");
+    return;
+  }
+  if (millis() - lastSendMs < SEND_INTERVAL_MS) return;
+  lastSendMs = millis();
 
-/*
- * CALIBRATION (do this once - full walkthrough in hardware/README.md):
- *   1. Upload with CAL_FACTOR = 1.0, tare with the platform empty.
- *   2. Read the raw value over Serial with a known weight on it (e.g. 500 g).
- *   3. CAL_FACTOR = raw_reading / known_weight_in_grams.
- *   4. Verify with 2-3 other known weights; aim for ±2 g.
- *
- * If weight goes DOWN when you press: swap A+ and A- on the HX711,
- * or just use a negative CAL_FACTOR.
- */
+  float grams = scale.get_units(3);
+  if (grams < 0 && grams > -2) grams = 0;
+  samples[sampleIndex] = grams;
+  sampleIndex = (sampleIndex + 1) % STABILITY_SAMPLES;
+  if (samplesCollected < STABILITY_SAMPLES) ++samplesCollected;
+  const bool stable = isStable();
+
+  digitalWrite(BUZZER_PIN, grams >= BUZZER_THRESHOLD_GRAMS ? HIGH : LOW);
+  Serial.printf("[SCALE] %.1f g | %s | ", grams, stable ? "STABLE" : "SETTLING");
+  if (!isnan(temperatureC) && !isnan(humidityPercent)) Serial.printf("%.1f C | %.1f %% RH\n", temperatureC, humidityPercent);
+  else Serial.println("environment sensors waiting");
+
+  postReading(grams, stable);
+}

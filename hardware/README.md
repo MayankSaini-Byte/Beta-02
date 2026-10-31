@@ -1,76 +1,105 @@
-# Load-cell weighing station (ESP32 + HX711)
+# KitchenSync physical sensor station
 
-Turns one grocery container into a live-tracked stock item. Firmware:
-[`esp32_scale/esp32_scale.ino`](esp32_scale/esp32_scale.ino) (Arduino IDE, library **"HX711" by bogde**).
+The Devices page accepts readings from a physical ESP32 + HX711 load cell + DHT22, as well as the existing simulator. The ESP32 sends one authenticated JSON reading to the existing Express API; React reads it from KitchenSync and never connects directly to the board. Sensor readings are stored as history and do not change pantry stock by themselves.
 
-## Parts
+Firmware: [`esp32_scale/esp32_scale.ino`](esp32_scale/esp32_scale.ino).
 
-| Part | Notes |
-|---|---|
-| ESP32 dev board | any common 30-pin board |
-| HX711 amplifier module | the green breakout |
-| Load cell | 5 kg bar-type to start (1 kg for better precision on small items) |
-| Two platforms | acrylic / wood / 3D-printed |
-| 4 bolts + spacers, jumper wires, USB cable | optional push button for tare |
+## Parts and wiring
 
-## Mechanical build (the part people get wrong)
+- ESP32 DevKit V1
+- HX711 24-bit load-cell amplifier and a 5 kg bar load cell
+- DHT22 3-pin module
+- 2-pin active buzzer
+- Stable base/top platform and spacers for the bar load cell
 
-A bar load cell must **flex**:
-
-1. Bolt one end to the **base plate** using a spacer so the cell can bend.
-2. Bolt the other end to the **top plate**, also with a spacer.
-3. The top plate must **not touch the base anywhere** - any contact ruins the readings.
-4. The arrow printed on the cell points in the direction of the applied load.
-5. Put the container in the **middle** of the top plate.
-
-## Wiring
-
-**Load cell -> HX711** (colors are common but not universal - check your datasheet):
-
-| Load cell wire | HX711 pin |
-|---|---|
-| Red | E+ |
-| Black | E- |
-| White | A- |
-| Green | A+ |
-
-**HX711 -> ESP32:**
-
-| HX711 | ESP32 |
-|---|---|
-| VCC | 3.3V |
-| GND | GND |
-| DT | GPIO 16 |
-| SCK | GPIO 4 |
-
-Tare button (optional): one leg to **GPIO 13**, the other to **GND**.
-
-If the weight goes DOWN when you press, swap A+ and A- (or use a negative calibration factor).
-
-## Calibration (once)
-
-1. Upload with `CAL_FACTOR = 1.0`, tare with the platform empty.
-2. Place a known weight (500 g, or a packet with a printed weight) and read `scale.get_units(10)` over Serial.
-3. `CAL_FACTOR = raw_reading / known_weight_in_grams`.
-4. Verify with 2-3 other known weights; aim for **±2 g**.
-
-## Backend contract
-
-| Endpoint | Who | Notes |
+| Part | Pin / wire | Connect to |
 |---|---|---|
-| `POST /api/scale/reading` | ESP32 | header `x-device-key`, body `{device_id, grams, stable}` -> 204 / 401 / 422 |
-| `GET /api/scale/latest` | browser | live weight + `online` badge (fresh < 5 s) |
-| `POST /api/scale/stock/:id/weigh` | browser | `{mode: "set"\|"add", containerWeight}` - server applies **its own** latest reading |
-| `GET /api/scale/reweigh/:itemId` | browser | expected (app) vs measured (scale) for the post-cook check |
+| HX711 | DT | ESP32 GPIO16 |
+| HX711 | SCK | ESP32 GPIO4 |
+| HX711 | VCC | ESP32 3V3 |
+| HX711 | GND | ESP32 GND |
+| DHT22 module | DATA | ESP32 GPIO22 |
+| DHT22 module | VCC | ESP32 3V3 |
+| DHT22 module | GND | ESP32 GND |
+| Active buzzer | positive | ESP32 GPIO21 |
+| Active buzzer | negative | ESP32 GND |
 
-Guards baked into the server: reading older than 3 s -> "Scale offline"; unstable -> "Weight not stable yet";
-net below container weight -> rejected; implausible values (e.g. -999 g) counted as rejected, never applied.
+Load cell to HX711: **red → E+**, **black → E−**, **green → A+**, **white → A−**. Check the markings on the DHT22 module because its physical pin order varies. All grounds must be common. There is no tare button or LED in this wiring plan.
 
-## Things that will bite you at the venue
+The load cell must flex between the base and top plate. Attach one end to each plate with spacers, keep the top plate clear of the base, and center the load. A buzzer that draws more current than the ESP32 GPIO can safely provide must use a transistor driver (and a flyback diode if the buzzer is inductive); do not power a high-current buzzer directly from GPIO21.
 
-- **Venue Wi-Fi blocks device-to-server traffic** -> use your phone's hotspot for the laptop, the ESP32 and the phone.
-- **Local backend** -> use the laptop's **LAN IP** in the firmware, not `localhost`. Over HTTPS use `WiFiClientSecure`.
-- **Drift** -> let the HX711 warm up ~1 min; keep wires short and away from the Wi-Fi antenna; don't touch the platform while reading.
-- **Overload** -> never lean on a 5 kg cell.
-- **Power** -> run the ESP32 from a power bank; bring a spare USB cable.
-- **Fallback** -> the "Simulate sensor" button in the UI posts a server-side fake reading, so the demo survives hardware failure.
+## Install the Arduino dependencies
+
+In Arduino IDE, install the Espressif ESP32 board package and these libraries:
+
+- **HX711** by bogde
+- **DHT sensor library** by Adafruit
+- **Adafruit Unified Sensor** (dependency of the DHT library)
+
+Select the ESP32 Dev Module board and the correct USB port.
+
+## Configure the local server and device
+
+1. Start KitchenSync on the laptop with `npm start` from the KitchenSync project root. The API listens on port 5000 by default; set `PORT` in `backend/.env` only if you intentionally use another port.
+2. Put the laptop and ESP32 on the same Wi-Fi network or phone hotspot. The ESP32 cannot use `localhost` to reach the laptop.
+3. Find the laptop's private LAN address with `ipconfig` on Windows or `ip addr` on Linux. Allow Node.js through the laptop firewall on the **Private** network if the board cannot connect.
+4. In `backend/.env`, set a private key, for example `DEVICE_KEY=<long-random-secret>`. Do not commit or share this value. If unset, KitchenSync currently uses its development fallback `secret-device-key`; set your own before connecting hardware.
+5. Open **Devices** in a commercial/service account. Add a storage point name and a **Physical Device ID**, for example `rice-scale-01`. This ID must be unique and must match `DEVICE_ID` in the firmware. Leaving the ID blank creates a simulator device.
+6. In `esp32_scale.ino`, replace `WIFI_SSID`, `WIFI_PASS`, `SERVER_HOST` (the laptop LAN IP), `DEVICE_KEY`, and `DEVICE_ID`. Keep port `5000` unless the backend is configured to use another port.
+7. Upload the firmware. Open Serial Monitor at **115200 baud**. The Devices page should report the sensor online within 10 seconds and show the last weight, stable state, temperature, and relative humidity.
+
+The firmware contains placeholders only. Do not paste real Wi-Fi credentials, the backend key, or a real laptop address into a checked-in copy of the source. Keep your configured firmware file private or restore the placeholders before sharing the repository.
+
+## Calibrate the load cell
+
+1. Secure the cell and platform; remove all weight from the platform before powering up. The ESP32 automatically tares at startup, so restart it with the platform unloaded.
+2. Upload once with a conservative calibration factor, then place a known mass (for example, 500 g) on the platform and read the reported grams.
+3. Adjust `CALIBRATION_FACTOR` until the reported value matches the known mass. With the bogde HX711 library, the factor is based on the averaged raw count divided by the known mass. Verify at two or three different masses and keep below the 5 kg cell rating.
+4. If weight changes in the wrong direction, swap A+ and A− or use the corresponding negative calibration factor.
+5. To tare an empty storage container after startup, use **Tare** on its device card while a fresh stable reading is available. The server stores this container offset; stock weighing subtracts it from the measured gross grams.
+
+The buzzer threshold is configured in firmware by `BUZZER_THRESHOLD_GRAMS`. Its default is 1000 g. There is no separate threshold API or web control yet.
+
+## API and data handling
+
+The authenticated hardware request is:
+
+```http
+POST /api/scale/reading
+Content-Type: application/json
+x-device-key: <DEVICE_KEY>
+```
+
+```json
+{
+  "device_id": "rice-scale-01",
+  "reading_id": "boot-sequence",
+  "grams": 1240.5,
+  "stable": true,
+  "temperature_c": 23.8,
+  "humidity_percent": 48.2,
+  "timestamp_ms": 1793550000000
+}
+```
+
+`timestamp_ms` is optional when the ESP32 has not synchronized its clock. The API rejects timestamps more than 30 seconds old or more than 30 seconds in the future, unknown device IDs (except legacy `scale1`), invalid environmental ranges, implausible weight, and out-of-order/duplicate readings. Valid unstable readings are retained for display/history but cannot be applied to stock. Expected responses: `204` accepted (or already-seen duplicate), `401` wrong device key, `404` unpaired device ID, `409` out of order, `422` invalid reading.
+
+Weight, temperature and humidity history are stored through KitchenSync's existing database abstraction (MongoDB or persistent JSON file store). `GET /api/devices` returns each paired storage point's last reading and connectivity; `GET /api/devices/:id/history` returns up to 200 recorded samples for all three charts. The Devices page polls the API; no cloud service or WebSocket server is used.
+
+## Apply sensor weight to stock
+
+Pair the sensor and, optionally, link its storage point to a pantry item. In **Load-cell weighing station**, select the physical sensor, select a pantry item, choose **Set total** or **Add to existing**, and apply the reading. Applying requires a fresh (under 3 seconds) stable reading and subtracts the configured container tare. The device only measures and records; it never silently overwrites stock.
+
+The simulator remains available for unpaired/demo devices. It is clearly labeled and cannot be used to simulate readings for a physical device.
+
+## Troubleshooting
+
+- **Device stays offline:** check that the API runs on the laptop's LAN, both devices share a network, `SERVER_HOST` is the laptop IP, port 5000 is reachable, and the firewall allows Node.js on Private networks.
+- **401:** `DEVICE_KEY` in firmware must exactly match `DEVICE_KEY` in `backend/.env`; restart the backend after changing `.env`.
+- **404 unknown device:** pair the sensor in Devices and make `DEVICE_ID` exactly match its Physical Device ID.
+- **Timestamp rejected:** allow NTP access or omit `timestamp_ms` until the ESP32 clock is synchronized.
+- **No temperature/humidity:** verify DHT22 VCC, common GND, GPIO22, the DHT22 library installation, and module pin labels. DHT22 samples are limited to one every 2.5 seconds.
+- **Weight unstable or drifting:** secure the platform, keep it untouched, warm up the HX711, shorten its wires, keep them away from the ESP32 antenna, and recalibrate.
+- **Buzzer does not sound / board resets:** verify GPIO21 and use a suitable transistor driver when the buzzer current exceeds GPIO limits.
+
+Physical sensor testing requires the actual board and sensors. The code and API checks alone do not prove that a particular physical setup is wired or calibrated correctly.

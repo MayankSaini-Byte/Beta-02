@@ -20,7 +20,7 @@ module.exports = function auth(req, res, next) {
       return res.status(401).json({ error: 'Session format changed. Please login again.' });
     }
     req.userId = payload.sub;
-    req.userEmail = payload.email;
+    req.username = payload.username || null;
     return next();
   } catch (e) {
     return res.status(401).json({ error: 'Session expired. Please login again.' });

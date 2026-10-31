@@ -204,11 +204,6 @@ export default function Shopping() {
         </div>}
       </div>
 
-      {household && <Link to="/price-compare" className="card flex-between wrap" style={{ display: 'flex', padding: 16, marginBottom: 14, textDecoration: 'none', border: '1px solid var(--accent)' }}>
-        <div><b>Compare live store prices</b><div className="sub">Choose a delivery area, review this list, and see Rewalto listings with store links.</div></div>
-        <span className="btn btn-primary"><Icon name="search" /> Open Store Offers</span>
-      </Link>}
-
     </div>
   );
 }

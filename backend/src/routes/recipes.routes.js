@@ -9,6 +9,7 @@ const { resolveCatalog } = require('../utils/text');
 const { toCommercial } = require('../utils/units');
 const { basePriceFor } = require('../services/priceService');
 const { householdRecipeAllows } = require('../services/plannerService');
+const { recipeMatchesDiet } = require('../utils/recipeDiet');
 const crypto = require('crypto');
 
 const router = express.Router();
@@ -42,7 +43,7 @@ function missingCost(rows) {
 router.get('/', asyncH(async (req, res) => {
   const { user, stock, recipes, factor } = await ctx(req);
   const q = String(req.query.q || '').toLowerCase();
-  const diet = req.query.diet;
+  const diet = String(req.query.diet || '').toLowerCase();
   const meal = req.query.meal;
   const cuisine = String(req.query.cuisine || '').trim().toLowerCase();
   const cookableOnly = req.query.cookable === '1';
@@ -50,7 +51,7 @@ router.get('/', asyncH(async (req, res) => {
   const sort = req.query.sort;
   const favorites = new Set(user.favorites || []);
 
-  let list = recipes.map((r) => {
+  let list = recipes.filter((recipe) => recipeMatchesDiet(recipe, diet)).map((r) => {
     const check = checkIngredients(r.ingredients, stock, factor);
     const protein = (r.nutrition && r.nutrition.protein) || 0;
     return {
@@ -72,11 +73,6 @@ router.get('/', asyncH(async (req, res) => {
 
   if (q) list = list.filter((r) => r.name.toLowerCase().includes(q) || (r.tags || []).some((t) => t.includes(q)) || r.cuisine.toLowerCase().includes(q));
   if (cuisine) list = list.filter((r) => r.cuisine.toLowerCase().includes(cuisine) || (r.tags || []).some((tag) => tag.toLowerCase().replace(/-/g, ' ').includes(cuisine)));
-  if (diet === 'veg') list = list.filter((r) => r.diet === 'veg');
-  if (diet === 'egg') list = list.filter((r) => ['veg', 'egg'].includes(r.diet));
-  if (diet === 'nonveg') list = list.filter((r) => ['veg', 'egg', 'nonveg'].includes(r.diet));
-  if (diet === 'jain') list = list.filter((r) => r.diet === 'veg' && !(r.ingredients || []).some((ingredient) => ['onion', 'garlic', 'ginger', 'ginger-garlic-paste', 'potato', 'sweet-potato', 'carrot', 'beetroot', 'radish'].includes(ingredient.key)));
-  if (diet === 'vegan') list = list.filter((r) => r.diet === 'veg' && !(r.ingredients || []).some((ingredient) => ['milk', 'curd', 'paneer', 'butter', 'cheese', 'ghee', 'yogurt'].includes(ingredient.key)));
   if (meal) list = list.filter((r) => (r.meal || []).includes(meal));
   if (req.query.compatible === '1') {
     const selectedMember = (user.members || []).find((member) => member.id === String(req.query.memberId || ''));
@@ -180,7 +176,7 @@ router.post('/', asyncH(async (req, res) => {
     key,
     name: String(b.name).trim(),
     cuisine: b.cuisine || 'Home Kitchen',
-    diet: ['veg', 'egg', 'nonveg'].includes(b.diet) ? b.diet : 'veg',
+    diet: ['veg', 'egg', 'nonveg', 'vegan', 'jain'].includes(b.diet) ? b.diet : 'veg',
     meal: Array.isArray(b.meal) && b.meal.length ? b.meal : ['lunch'],
     timeMin: Math.max(5, Number(b.timeMin) || 30),
     baseServings: Math.max(1, Number(b.baseServings || b.servings) || 2),

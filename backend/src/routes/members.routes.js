@@ -27,7 +27,7 @@ async function getUser(req) {
 // GET /api/members
 router.get('/', asyncH(async (req, res) => {
   const user = await getUser(req);
-  res.json({ members: user.members || [], me: { id: user._id, name: user.name, role: 'admin', email: user.email } });
+  res.json({ members: user.members || [], me: { id: user._id, name: user.name, username: user.username || null, role: 'admin' } });
 }));
 
 // POST /api/members { name, role, type, calorieTarget }

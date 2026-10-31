@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import api from '../api/client.js';
@@ -7,26 +7,33 @@ import Icon from '../components/Icon.jsx';
 import Modal from '../components/Modal.jsx';
 import { getAccountType } from '../utils/accountType.js';
 
+const RECIPE_DIETS = [
+  ['', 'All diets'], ['veg', 'Vegetarian'], ['egg', 'Eggetarian'],
+  ['nonveg', 'Non-vegetarian'], ['vegan', 'Vegan'], ['jain', 'Jain']
+];
+
 export default function Recipes() {
   const { toast, t, user } = useApp();
+  const householdAccount = getAccountType(user) === 'household';
+  const globalDiet = householdAccount ? user?.household?.diet || 'veg' : '';
   const [data, setData] = useState(null);
   const [q, setQ] = useState('');
-  const [diet, setDiet] = useState(() => {
-    const saved = getAccountType(user) === 'household' ? user?.household?.diet || 'veg' : '';
-    return saved === 'custom' ? '' : saved;
-  });
+  const [diet, setDiet] = useState('');
   const [cuisine, setCuisine] = useState('');
   const [meal, setMeal] = useState('');
   const [cookable, setCookable] = useState(false);
   const [gym, setGym] = useState(false);
   const [sort, setSort] = useState('smart');
   const [adding, setAdding] = useState(false);
-  const householdAccount = getAccountType(user) === 'household';
+  const [showAllRecipes, setShowAllRecipes] = useState(false);
+  const [twoRowsCount, setTwoRowsCount] = useState(6);
+  const recipeGridRef = useRef(null);
+  const activeDiet = householdAccount ? (globalDiet === 'custom' ? '' : globalDiet) : diet;
 
   const load = async () => {
     const params = {};
     if (q) params.q = q;
-    if (diet) params.diet = diet;
+    if (activeDiet) params.diet = activeDiet;
     if (cuisine) params.cuisine = cuisine;
     if (meal) params.meal = meal;
     if (cookable) params.cookable = '1';
@@ -35,12 +42,26 @@ export default function Recipes() {
     const { data } = await api.get('/recipes', { params });
     setData(data);
   };
-  const globalDiet = getAccountType(user) === 'household' ? user?.household?.diet || 'veg' : '';
-  useEffect(() => setDiet(globalDiet === 'custom' ? '' : globalDiet), [globalDiet]);
-  useEffect(() => { load().catch(() => toast('Could not load recipes', 'err')); }, [q, diet, cuisine, meal, cookable, gym, sort]);
+  useEffect(() => {
+    setShowAllRecipes(false);
+    load().catch(() => toast('Could not load recipes', 'err'));
+  }, [q, activeDiet, cuisine, meal, cookable, gym, sort]);
+  useEffect(() => {
+    const grid = recipeGridRef.current;
+    if (!grid) return undefined;
+    const updateVisibleRows = () => {
+      const columns = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+      setTwoRowsCount(columns * 2);
+    };
+    const observer = new ResizeObserver(updateVisibleRows);
+    observer.observe(grid);
+    updateVisibleRows();
+    return () => observer.disconnect();
+  }, []);
 
-  const diets = ['', 'veg', 'egg', 'nonveg', 'vegan', 'jain'];
   const meals = ['', 'breakfast', 'lunch', 'dinner', 'snack'];
+  const shownRecipes = data ? (showAllRecipes ? data.recipes : data.recipes.slice(0, twoRowsCount)) : [];
+  const hiddenRecipeCount = data ? Math.max(0, data.recipes.length - twoRowsCount) : 0;
 
   return (
     <div>
@@ -49,7 +70,7 @@ export default function Recipes() {
         <div className="flex" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
           <div>
             <div className="flex" style={{ gap: 8, alignItems: 'center' }}>
-              <Icon name="dumbbell" size={18} style={{ color: 'var(--terra)' }} />
+              <Icon name="dumbbell" size={18} style={{ color: '#64748b' }} />
               <b style={{ fontFamily: 'var(--font-display)', fontSize: 17 }}>Gym-friendly cooking</b>
             </div>
             <div className="small muted mt-1" style={{ maxWidth: 560 }}>
@@ -84,8 +105,8 @@ export default function Recipes() {
           <option value="">All cuisines</option>
           {['North Indian', 'South Indian', 'Rajasthani', 'Gujarati', 'Maharashtrian', 'Bengali', 'Punjabi'].map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
-        {!householdAccount && <select className="input" style={{ width: 130 }} value={diet} onChange={(e) => setDiet(e.target.value)}>
-          {diets.map((d) => <option key={d} value={d}>{d === '' ? 'All diets' : d[0].toUpperCase() + d.slice(1)}</option>)}
+        {!householdAccount && <select className="input" style={{ width: 150 }} aria-label="Filter food preference" value={diet} onChange={(e) => setDiet(e.target.value)}>
+          {RECIPE_DIETS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>}
         <select className="input" style={{ width: 140 }} value={meal} onChange={(e) => setMeal(e.target.value)}>
           {meals.map((m) => <option key={m} value={m}>{m === '' ? 'All meals' : m}</option>)}
@@ -100,8 +121,8 @@ export default function Recipes() {
         <div className="small muted" style={{ padding: 30, textAlign: 'center' }}>No recipes match those filters.</div>
       )}
 
-      <div className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: 13 }}>
-        {data && data.recipes.map((r) => (
+      <div ref={recipeGridRef} className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: 13 }}>
+        {shownRecipes.map((r) => (
           <Link key={r.key} to={`/recipes/${r.key}`} className="card" style={{ padding: 15, textDecoration: 'none', color: 'inherit', position: 'relative' }}>
             <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
               <b style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{r.name}</b>
@@ -109,9 +130,9 @@ export default function Recipes() {
             </div>
             <div className="small muted mt-1">{r.cuisine} · {r.diet} · {r.timeMin} min · {r.kcal} kcal</div>
             <div className="macros">
-              <span className="macro"><b style={{ color: 'var(--terra)' }}>{r.nutrition.protein}g</b> P</span>
+              <span className="macro macro-protein"><b>{r.nutrition.protein}g</b> P</span>
               <span className="macro"><b>{r.nutrition.carbs}g</b> C</span>
-              <span className="macro"><b>{r.nutrition.fat}g</b> F</span>
+              <span className="macro macro-fat"><b>{r.nutrition.fat}g</b> F</span>
               <span className="macro"><b>{r.nutrition.fiber}g</b> fib</span>
             </div>
             <div className="flex wrap mt-2" style={{ gap: 6 }}>
@@ -125,6 +146,12 @@ export default function Recipes() {
           </Link>
         ))}
       </div>
+      {data && hiddenRecipeCount > 0 && <div className="recipes-view-more">
+        <button className="btn" type="button" onClick={() => setShowAllRecipes((current) => !current)}>
+          {showAllRecipes ? 'Show less' : `View more (${hiddenRecipeCount})`}
+          <Icon name={showAllRecipes ? 'chevronUp' : 'chevD'} size={14} />
+        </button>
+      </div>}
 
       <AddRecipeModal open={adding} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); load(); }} />
     </div>
@@ -207,8 +234,8 @@ function AddRecipeModal({ open, onClose, onAdded }) {
       <div className="flex wrap" style={{ gap: 8 }}>
         <input className="input" style={{ flex: 1, minWidth: 170 }} placeholder="Dish name (e.g. Maa ki Dal)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input className="input" type="number" min="1" style={{ width: 90 }} title="Servings" value={form.servings} onChange={(e) => setForm({ ...form, servings: Number(e.target.value) })} />
-        <select className="input" style={{ width: 105 }} value={form.diet} onChange={(e) => setForm({ ...form, diet: e.target.value })}>
-          {['veg', 'egg', 'nonveg'].map((d) => <option key={d}>{d}</option>)}
+        <select className="input" style={{ width: 140 }} aria-label="Recipe food preference" value={form.diet} onChange={(e) => setForm({ ...form, diet: e.target.value })}>
+          {RECIPE_DIETS.filter(([value]) => value).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
         <select className="input" style={{ width: 118 }} value={form.meal[0]} onChange={(e) => setForm({ ...form, meal: [e.target.value] })}>
           {['breakfast', 'lunch', 'dinner', 'snack'].map((m) => <option key={m}>{m}</option>)}

@@ -211,9 +211,9 @@ Full reference: **docs/API.md**. 45+ endpoints under `/api` (JWT Bearer), plus `
 
 ## Hardware notes
 
-- **Load-cell weighing station**: ESP32 + HX711 + bar load cell → firmware in `hardware/esp32_scale/esp32_scale.ino` (library "HX711" by bogde) POSTs `{device_id, grams, stable}` to `/api/scale/reading` with the `x-device-key` header every 0.5 s. Wiring, mechanical build, calibration and venue tips: `hardware/README.md`. The Devices page shows the live weight with Stable ✅ / Settling… badges and "Set total / Add to existing" weigh-ins; "Simulate sensor" is the no-hardware fallback.
+- **Physical sensor station**: ESP32 + HX711 + 5 kg load cell + DHT22 → firmware in `hardware/esp32_scale/esp32_scale.ino` posts authenticated weight, stability, temperature and humidity readings to `/api/scale/reading`. Pair its `DEVICE_ID` on the existing Devices page. The page refreshes live readings, shows physical/simulator and online/offline status, and charts all three sensor histories. Stock changes still require an explicit stable weigh-in action. Wiring, calibration, local network and troubleshooting: `hardware/README.md`; the simulator remains available for demo devices.
 - **Receipt + expiry capture**: plain `<input type="file" accept="image/*" capture="environment">` - opens the rear camera on Android/iPhone without HTTPS. Images go to `/api/receipts/*`; nothing enters stock without the review + Confirm tap.
-- **Venue Wi-Fi**: use your phone's hotspot; put the backend's LAN IP in the firmware. If the ESP32 can't reach the server, the UI shows "scale offline" and Simulate keeps the demo alive.
+- **Venue Wi-Fi**: use your phone's hotspot; put the backend's LAN IP in the firmware and set a private `DEVICE_KEY` in `backend/.env`. If the ESP32 can't reach the server, the UI shows offline status; simulator devices remain available for demos.
 
 ---
 
