@@ -1,0 +1,20 @@
+{
+  "name": "kitchensync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KitchenSync (PS-5) - smart kitchen inventory, meal planning & multi-store price comparison. Express + MongoDB API with a React (Vite) frontend.",
+  "scripts": {
+    "setup": "npm --prefix backend install && npm --prefix frontend install",
+    "dev": "concurrently -n api,web -c green,cyan \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix backend start",
+    "dev:mongo": "npm --prefix backend run dev:mongo",
+    "test:api": "bash backend/scripts/smoke-test.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
