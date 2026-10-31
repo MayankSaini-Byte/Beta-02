@@ -122,7 +122,7 @@ export default function Recipes() {
 function AddRecipeModal({ open, onClose, onAdded }) {
   const { toast } = useApp();
   const [form, setForm] = useState({ name: '', cuisine: 'Home Kitchen', diet: 'veg', meal: ['lunch'], timeMin: 30, servings: 2, kcal: 300, steps: [''] });
-  const [ings, setIngs] = useState([{ name: '' }]);
+  const [ings, setIngs] = useState([{ name: '', qty: '', unit: 'g' }]);
   const [estimating, setEstimating] = useState(false);
   const [estimated, setEstimated] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -130,7 +130,7 @@ function AddRecipeModal({ open, onClose, onAdded }) {
   useEffect(() => {
     if (open) {
       setForm({ name: '', cuisine: 'Home Kitchen', diet: 'veg', meal: ['lunch'], timeMin: 30, servings: 2, kcal: 300, steps: [''] });
-      setIngs([{ name: '' }]);
+      setIngs([{ name: '', qty: '', unit: 'g' }]);
       setEstimated(false);
     }
   }, [open]);
@@ -152,20 +152,38 @@ function AddRecipeModal({ open, onClose, onAdded }) {
 
   const save = async () => {
     if (!form.name.trim()) return toast('Name is required', 'warn');
-    const clean = ings.filter((i) => i.name.trim() && (i.qty || estimated));
-    if (!clean.length) return toast('Add at least one ingredient', 'warn');
+    const named = ings.filter((i) => i.name.trim());
+    if (!named.length) return toast('Add at least one ingredient', 'warn');
     setSaving(true);
     try {
+      let ready = named.map((i) => ({ ...i, qty: Number(i.qty), estimated: !!i.estimated }));
+      const needsEstimate = ready.some((i) => !Number.isFinite(i.qty) || i.qty <= 0);
+      if (needsEstimate) {
+        const { data: estimateData } = await api.post('/recipes/estimate', {
+          name: form.name.trim(), servings: Number(form.servings) || 2, diet: form.diet,
+          ingredients: named.map((i) => ({ name: i.name }))
+        });
+        ready = ready.map((ingredient, index) => {
+          if (Number.isFinite(ingredient.qty) && ingredient.qty > 0) return ingredient;
+          const estimate = estimateData.ingredients[index];
+          if (!estimate || !Number.isFinite(Number(estimate.qty)) || Number(estimate.qty) <= 0) {
+            throw new Error(`Could not estimate a quantity for ${ingredient.name}. Enter it manually.`);
+          }
+          return { ...ingredient, qty: Number(estimate.qty), unit: estimate.unit || ingredient.unit || 'g', estimated: true };
+        });
+        setIngs(ready);
+        setEstimated(true);
+      }
       const { data } = await api.post('/recipes', {
         ...form,
-        baseServings: form.servings,
-        ingredients: clean.map((i) => ({ name: i.name, qty: i.qty || 1, unit: i.unit || 'g', estimated: !!i.estimated })),
-        steps: form.steps.filter(Boolean),
+        baseServings: Number(form.servings) || 2,
+        ingredients: ready.map((i) => ({ name: i.name.trim(), qty: i.qty, unit: i.unit || 'g', estimated: !!i.estimated })),
+        steps: form.steps.filter((step) => step.trim()),
         tags: ['custom']
       });
-      toast(`${data.recipe.name} added to the library`, 'ok', 'Recipe created');
+      toast(needsEstimate ? `${data.recipe.name} added. Missing quantities were estimated; you can review them in the recipe.` : `${data.recipe.name} added to the library`, 'ok', 'Recipe created');
       onAdded(data.recipe);
-    } catch (e) { toast(e.response?.data?.error || 'Could not save recipe', 'err'); }
+    } catch (e) { toast(e.response?.data?.error || e.message || 'Could not save recipe', 'err'); }
     setSaving(false);
   };
 
@@ -187,26 +205,22 @@ function AddRecipeModal({ open, onClose, onAdded }) {
       <div className="meal-slot mt-2">ingredients</div>
       {ings.map((ing, i) => (
         <div key={i} className="flex mt-1" style={{ gap: 7 }}>
-          <input className="input" style={{ flex: 1 }} placeholder={i.name !== undefined && ing.estimated ? undefined : 'e.g. paneer, rice, jeera'} value={ing.name || ''} onChange={(e) => setIng(i, { name: e.target.value })} />
-          {estimated && (
-            <>
-              <input className="input" style={{ width: 84 }} type="number" value={ing.qty ?? ''} onChange={(e) => setIng(i, { qty: Number(e.target.value), estimated: false })} title="estimated, editable" />
-              <select className="input" style={{ width: 72 }} value={ing.unit || 'g'} onChange={(e) => setIng(i, { unit: e.target.value })}>
-                {['g', 'ml', 'pc'].map((u) => <option key={u}>{u}</option>)}
-              </select>
-              {ing.estimated && <span className="chip chip-gym" title="AI-estimated, editable" style={{ fontSize: 10 }}>est</span>}
-            </>
-          )}
+          <input className="input" style={{ flex: 1, minWidth: 105 }} placeholder="Ingredient (e.g. paneer)" value={ing.name || ''} onChange={(e) => setIng(i, { name: e.target.value })} />
+          <input className="input" style={{ width: 82 }} type="number" min="0.1" step="any" placeholder="Qty" value={ing.qty ?? ''} onChange={(e) => setIng(i, { qty: e.target.value, estimated: false })} title={ing.estimated ? 'Estimated quantity; editable' : 'Ingredient amount'} />
+          <select className="input" style={{ width: 72 }} value={ing.unit || 'g'} onChange={(e) => setIng(i, { unit: e.target.value, estimated: false })}>
+            {['g', 'ml', 'pc'].map((u) => <option key={u}>{u}</option>)}
+          </select>
+          {ing.estimated && <span className="chip chip-gym" title="Estimated, editable" style={{ fontSize: 10 }}>est</span>}
           <button className="btn btn-ghost btn-icon" onClick={() => setIngs((a) => a.filter((_, j) => j !== i))}><Icon name="x" size={13} /></button>
         </div>
       ))}
       <div className="flex mt-2" style={{ gap: 8 }}>
-        <button className="btn" onClick={() => setIngs((a) => [...a, { name: '' }])}><Icon name="plus" /> Ingredient</button>
+        <button className="btn" onClick={() => setIngs((a) => [...a, { name: '', qty: '', unit: 'g' }])}><Icon name="plus" /> Ingredient</button>
         <button className="btn btn-primary" onClick={estimate} disabled={estimating}>
           <Icon name="sparkles" /> {estimating ? 'Estimating…' : estimated ? 'Re-estimate (AI)' : 'AI estimate quantities'}
         </button>
       </div>
-      {estimated && <div className="small muted mt-1">Quantities are <b>AI-estimated, editable</b> - adjust anything before saving.</div>}
+      <div className="small muted mt-1">Enter each amount yourself, or leave it blank and Save will estimate it. Estimates are labeled and editable.</div>
 
       <div className="meal-slot mt-2">steps</div>
       {form.steps.map((s, i) => (
@@ -216,7 +230,7 @@ function AddRecipeModal({ open, onClose, onAdded }) {
 
       <div className="flex mt-3" style={{ justifyContent: 'flex-end', gap: 8 }}>
         <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={save} disabled={saving}><Icon name="check" /> {saving ? 'Saving…' : 'Save recipe'}</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}><Icon name="check" /> {saving ? 'Estimating & saving…' : 'Save recipe'}</button>
       </div>
     </Modal>
   );

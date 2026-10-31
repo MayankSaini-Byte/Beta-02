@@ -140,8 +140,8 @@ router.post('/estimate', asyncH(async (req, res) => {
 // POST /api/recipes - add a recipe (user/AI-assisted) to the library
 router.post('/', asyncH(async (req, res) => {
   const b = req.body || {};
-  if (!b.name) throw httpError(400, 'Recipe name is required');
-  if (!Array.isArray(b.ingredients) || !b.ingredients.length) throw httpError(400, 'At least one ingredient is required');
+  if (!String(b.name || '').trim()) throw httpError(400, 'Recipe name is required');
+  if (!Array.isArray(b.ingredients) || !b.ingredients.some((i) => String(i.name || '').trim())) throw httpError(400, 'At least one named ingredient is required');
 
   const { user, recipes } = await ctx(req);
   const norm = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -149,13 +149,15 @@ router.post('/', asyncH(async (req, res) => {
   let n = 2;
   while (recipes.some((r) => r.key === key)) key = `${norm}-${n++}`;
 
-  const ingredients = b.ingredients.slice(0, 25).map((i) => {
+  const ingredients = b.ingredients.filter((i) => String(i.name || '').trim()).slice(0, 25).map((i) => {
+    const qty = Number(i.qty);
+    if (!Number.isFinite(qty) || qty <= 0) throw httpError(400, `Enter a valid quantity for ${String(i.name).trim()}`);
     const cat = (i.key && recipes && null) || resolveCatalog(i.name || '');
     const unit = ['g', 'ml', 'pc'].includes(i.unit) ? i.unit : cat ? cat.unit : 'g';
     return {
       key: i.key || (cat ? cat.key : null),
       name: cat ? cat.name : String(i.name || 'item'),
-      qty: Math.max(0.5, Number(i.qty) || 1),
+      qty,
       unit,
       estimated: !!i.estimated
     };
