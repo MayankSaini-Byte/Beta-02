@@ -21,11 +21,11 @@ function useCountUp(target, duration = 650) {
   return val;
 }
 
-export default function StatCard({ icon, tone = 'green', label, value, prefix = '', suffix = '' }) {
+export default function StatCard({ icon, tone = 'green', label, value, prefix = '', suffix = '', title }) {
   const numeric = typeof value === 'number';
   const animated = useCountUp(numeric ? value : 0);
   return (
-    <div className="card stat-card">
+    <div className="card stat-card" title={title}>
       <div className="stat-top">
         <div className={`stat-icon tone-${tone}`}><Icon name={icon} /></div>
       </div>

@@ -279,7 +279,7 @@ router.post('/expiry/confirm', asyncH(async (req, res) => {
   if (b.itemId) {
     item = await pantries.findOne({ _id: b.itemId, ownerId: req.userId });
     if (!item) throw httpError(404, 'Stock item not found');
-    item = await pantries.updateOne({ _id: item._id }, { expiryDate, updatedAt: new Date().toISOString() });
+    item = await pantries.updateOne({ _id: item._id }, { expiryDate, expirySource: 'scanned', updatedAt: new Date().toISOString() });
   } else {
     const name = String(b.name || '').trim();
     if (!name) throw httpError(400, 'Pick an existing item or type a product name');
@@ -288,7 +288,7 @@ router.post('/expiry/confirm', asyncH(async (req, res) => {
       (p) => (cat && p.key === cat.key) || p.name.toLowerCase() === name.toLowerCase()
     );
     if (existing) {
-      item = await pantries.updateOne({ _id: existing._id }, { expiryDate, updatedAt: new Date().toISOString() });
+      item = await pantries.updateOne({ _id: existing._id }, { expiryDate, expirySource: 'scanned', updatedAt: new Date().toISOString() });
     } else {
       const qty = Number(b.quantity) || (cat && cat.unit === 'pc' ? 1 : 1000);
       const unit = b.unit || (cat ? cat.unit : 'g');
@@ -302,6 +302,7 @@ router.post('/expiry/confirm', asyncH(async (req, res) => {
         threshold: cat ? Math.max(1, Math.round(cat.unit === 'g' || cat.unit === 'ml' ? 250 : 1)) : 1,
         capacity: Math.max(qty * 1.25, 750),
         expiryDate,
+        expirySource: 'scanned',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });

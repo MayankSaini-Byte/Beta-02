@@ -1,11 +1,13 @@
 const express = require('express');
 const auth = require('../middleware/auth');
+const { requireAccountType } = require('../middleware/accountType');
 const { asyncH } = require('../middleware/errors');
 const { summarize } = require('../services/analyticsService');
 const { shape } = require('../services/activityService');
 
 const router = express.Router();
 router.use(auth);
+router.use(requireAccountType('commercial', 'service'));
 
 // GET /api/analytics/summary
 router.get('/summary', asyncH(async (req, res) => {

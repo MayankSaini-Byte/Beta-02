@@ -7,8 +7,8 @@ export const LANGS = { en: 'English', hi: 'हिन्दी' };
 
 const DICT = {
   en: {
-    dashboard: 'Dashboard', recipes: 'Recipes', planner: 'Meal Planner', shopping: 'Shopping',
-    scan: 'Scan & Detect', insights: 'Insights', devices: 'Devices', settings: 'Settings',
+    dashboard: 'Dashboard', recipes: 'Recipes', planner: 'Meal Planner', nutrition: 'Nutrition', shopping: 'Shopping', priceCompare: 'Price Compare',
+    scan: 'Scan & Detect', insights: 'Insights', devices: 'Devices', profile: 'Profile',
     goodMorning: 'Good morning', goodAfternoon: 'Good afternoon', goodEvening: 'Good evening',
     addItems: 'Add item', planWeek: 'Plan week', todaysMeals: "Today's meals",
     breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', markDone: 'Mark done', undo: 'Undo',
@@ -21,8 +21,8 @@ const DICT = {
     saved: 'Saved', search: 'Search...'
   },
   hi: {
-    dashboard: 'डैशबोर्ड', recipes: 'रेसिपी', planner: 'मील प्लानर', shopping: 'खरीदारी',
-    scan: 'स्कैन', insights: 'विश्लेषण', devices: 'डिवाइस', settings: 'सेटिंग्स',
+    dashboard: 'डैशबोर्ड', recipes: 'रेसिपी', planner: 'मील प्लानर', nutrition: 'पोषण', shopping: 'खरीदारी', priceCompare: 'कीमत तुलना',
+    scan: 'स्कैन', insights: 'विश्लेषण', devices: 'डिवाइस', profile: 'प्रोफ़ाइल',
     goodMorning: 'सुप्रभात', goodAfternoon: 'नमस्कार', goodEvening: 'शुभ संध्या',
     addItems: 'सामान जोड़ें', planWeek: 'सप्ताह बनाएं', todaysMeals: 'आज के भोजन',
     breakfast: 'नाश्ता', lunch: 'दोपहर का खाना', dinner: 'रात का खाना', markDone: 'बन गया', undo: 'वापस',

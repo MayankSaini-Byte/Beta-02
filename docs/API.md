@@ -8,6 +8,25 @@ Base URL: `/api` · Auth: `Authorization: Bearer <JWT>` (all routes except `/aut
 - Dates are `YYYY-MM-DD` strings. `_id` values are opaque strings.
 - Errors: `{ "error": "message" }` with proper HTTP status.
 
+## Account workspaces
+
+Registration accepts `accountType: "household" | "commercial" | "service"`. New accounts return `onboardingComplete: false` and must save a profile before entering the app. Existing accounts without this field are treated as already onboarded.
+
+| Method | Path | Body / query | Notes |
+|---|---|---|---|
+| PUT | `/auth/me` | `{accountType?, onboardingComplete?, household?, members?, businessProfile?}` | Saves household members, diet/allergy preferences, regional cuisines, address and nutrition targets; commercial/service type, outlet, address, daily servings and vendor contact. |
+| GET | `/diet/today?memberId=` | `memberId` optional | Selected member’s daily calorie/protein targets, food logs, consumed amounts and remaining amounts. |
+| POST | `/diet/log` | `{memberId?, name, calories, protein?, source?}` | Logs a meal or outside food for today. |
+| DELETE | `/diet/log/:id` | - | Removes a food log owned by the current account. |
+| GET | `/vendors` | - | Lists vendors for commercial and food-service accounts. |
+| POST | `/vendors` | `{name, phone, notes?}` | Saves supplier contact details for WhatsApp restocking. |
+| PATCH | `/vendors/:id` | `{name?, phone?, notes?}` | Updates an owned vendor. |
+| DELETE | `/vendors/:id` | - | Removes an owned vendor. |
+| GET | `/shopping/live-compare/status` | - | Reports whether `MULTISTOREAPI` is configured. |
+| POST | `/shopping/live-compare` | `{pincode, items:[{name, qty, unit}], forceRefresh?}` | Compares collected offers using required quantity, pack size, needed packs, total price and unit price. |
+
+Household recipe filtering uses `?compatible=1&memberId=<member>` for the selected person; without `memberId`, the shared planner requires every household member’s diet and allergy restrictions to be satisfied.
+
 ---
 
 ## Auth
@@ -15,10 +34,10 @@ Base URL: `/api` · Auth: `Authorization: Bearer <JWT>` (all routes except `/aut
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | POST | `/auth/demo` | - | `{token, user, mode}` - one-click demo household |
-| POST | `/auth/register` | `{name, email, password}` | `201 {token, user, mode}` |
+| POST | `/auth/register` | `{name, email, password, accountType?}` | `201 {token, user, mode}`; new accounts start with onboarding incomplete |
 | POST | `/auth/login` | `{email, password}` | `{token, user, mode}` |
 | GET | `/auth/me` | - | `{user, mode}` |
-| PUT | `/auth/me` | `{name?, household?}` | `{user}` - household: `{adults, children, diet, allergies, tastes, weeklyBudget}` |
+| PUT | `/auth/me` | `{name?, accountType?, household?, members?, businessProfile?, onboardingComplete?}` | `{user}` - saves profile details and marks onboarding complete when requested |
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:5000/api/auth/demo | jq -r .token)
@@ -76,6 +95,10 @@ Optimizer scoring: `2.0·coverage + 0.8·tasteMatch + 1.1·usesExpiring + 0.7·v
 | PATCH | `/shopping/items/:id` | `{done}` |
 | DELETE | `/shopping/items/:id` | |
 | POST | `/shopping/compare` | `{items:[{key?,name,qty,unit}]}` → per-item quotes for 4 stores, basket totals, fees, ETAs, `bestProvider`, `savings` |
+| GET | `/shopping/live-compare/status` | `{configured, provider, cacheDays}`; does not expose the API key |
+| POST | `/shopping/live-compare` | `{pincode, forceRefresh?, items:[{name,qty,unit}]}` → live Rewalto listings, fresh stock signals, compatible pack totals, purchase URLs, and best baskets |
+| GET | `/shopping/location/search?q=` | Search Indian localities/PINs for the delivery-area map |
+| GET | `/shopping/location/reverse?lat=&lon=` | Resolve a clicked Indian map point to its delivery PIN |
 | GET | `/shopping/quotes?name=&qty=&unit=` | Single-item quick check |
 | GET | `/shopping/cart` | Active cart + last order |
 | POST | `/shopping/cart` | `{providerId, items}` → cart with totals |

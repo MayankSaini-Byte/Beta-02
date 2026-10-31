@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import api, { errMsg } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
+import { isHousehold } from '../utils/accountType.js';
 import Icon from '../components/Icon.jsx';
 
 /* ================================================================== */
@@ -123,8 +124,7 @@ function ExpiryPanel() {
       <div className="card">
         <h3 style={{ fontSize: 15 }}>Expiry date checker</h3>
         <p className="tiny muted mt-1 mb-2">
-          Point your phone camera at the <b>expiry / best-before date printed on the pack</b>. The date is read
-          by the model service (your trained model, or the built-in vision fallback), then <b>you confirm</b> it
+          Point your phone camera at the <b>expiry / best-before date printed on the pack</b>. KitchenSync reads the date from the photo, then <b>you confirm</b> it
           before anything is saved. No barcode hardware needed.
         </p>
 
@@ -321,7 +321,7 @@ function ReceiptPanel() {
         <div>
           <h3 style={{ fontSize: 15 }}>Receipt scanner</h3>
           <p className="small muted mt-1" style={{ maxWidth: 640 }}>
-            Flow: photograph the bill → backend forwards it to the local PaddleOCR model service (with a hard timeout) → units are
+        Flow: photograph the bill → KitchenSync reads the printed text locally → units are
             parsed ("500G", "1 LTR", "2 PCS") → lines are fuzzy-matched to your stock ("TOMATO LOCAL" joins "Tomato")
             → <b>you review</b> → Confirm adds to stock. The photo's SHA-256 hash is remembered, so scanning the same
             bill twice can never double your stock.
@@ -414,7 +414,7 @@ function ReceiptPanel() {
 
       {!scan && !busy && !failure && (
         <div className="small muted mt-2" style={{ lineHeight: 1.8 }}>
-          <b style={{ color: 'var(--text)' }}>Failure handling:</b> if the model service is down, the photo is blurry, or
+          <b style={{ color: 'var(--text)' }}>If a scan misses something:</b> when the photo is blurry or
           nothing is detected, you'll see "Couldn't read this receipt" - retake, paste the text, or add items manually.
           It never crashes and never invents items.
         </div>
@@ -426,9 +426,11 @@ function ReceiptPanel() {
 /* ================================================================== */
 
 export default function Scan() {
+  const { user } = useApp();
   const [tab, setTab] = useState('expiry');
   return (
     <div>
+      {isHousehold(user) && <div className="premium-feature-banner"><span className="premium-feature-mark"><Icon name="sparkles" /></span><span><b>Premium feature</b><small>Scan & Detect brings expiry and receipt tools together for your household.</small></span><span className="premium-pill">PREMIUM</span></div>}
       <div className="scan-tabs">
         <button className={`tab ${tab === 'expiry' ? 'active' : ''}`} onClick={() => setTab('expiry')}><Icon name="clock" /> Expiry date checker</button>
         <button className={`tab ${tab === 'receipt' ? 'active' : ''}`} onClick={() => setTab('receipt')}><Icon name="receipt" /> Receipt scanner</button>

@@ -8,6 +8,7 @@ const { estimateQuantities } = require('../services/aiService');
 const { resolveCatalog } = require('../utils/text');
 const { toCommercial } = require('../utils/units');
 const { basePriceFor } = require('../services/priceService');
+const { householdRecipeAllows } = require('../services/plannerService');
 const crypto = require('crypto');
 
 const router = express.Router();
@@ -43,6 +44,7 @@ router.get('/', asyncH(async (req, res) => {
   const q = String(req.query.q || '').toLowerCase();
   const diet = req.query.diet;
   const meal = req.query.meal;
+  const cuisine = String(req.query.cuisine || '').trim().toLowerCase();
   const cookableOnly = req.query.cookable === '1';
   const gymOnly = req.query.gym === '1';
   const sort = req.query.sort;
@@ -69,8 +71,19 @@ router.get('/', asyncH(async (req, res) => {
   });
 
   if (q) list = list.filter((r) => r.name.toLowerCase().includes(q) || (r.tags || []).some((t) => t.includes(q)) || r.cuisine.toLowerCase().includes(q));
-  if (diet === 'veg' || diet === 'egg' || diet === 'nonveg') list = list.filter((r) => r.diet === diet);
+  if (cuisine) list = list.filter((r) => r.cuisine.toLowerCase().includes(cuisine) || (r.tags || []).some((tag) => tag.toLowerCase().replace(/-/g, ' ').includes(cuisine)));
+  if (diet === 'veg') list = list.filter((r) => r.diet === 'veg');
+  if (diet === 'egg') list = list.filter((r) => ['veg', 'egg'].includes(r.diet));
+  if (diet === 'nonveg') list = list.filter((r) => ['veg', 'egg', 'nonveg'].includes(r.diet));
+  if (diet === 'jain') list = list.filter((r) => r.diet === 'veg' && !(r.ingredients || []).some((ingredient) => ['onion', 'garlic', 'ginger', 'ginger-garlic-paste', 'potato', 'sweet-potato', 'carrot', 'beetroot', 'radish'].includes(ingredient.key)));
+  if (diet === 'vegan') list = list.filter((r) => r.diet === 'veg' && !(r.ingredients || []).some((ingredient) => ['milk', 'curd', 'paneer', 'butter', 'cheese', 'ghee', 'yogurt'].includes(ingredient.key)));
   if (meal) list = list.filter((r) => (r.meal || []).includes(meal));
+  if (req.query.compatible === '1') {
+    const selectedMember = (user.members || []).find((member) => member.id === String(req.query.memberId || ''));
+    const compatibleMembers = selectedMember ? [selectedMember] : (user.members || []);
+    const compatibleKeys = new Set(recipes.filter((recipe) => householdRecipeAllows(user.household || {}, recipe, compatibleMembers)).map((recipe) => recipe.key));
+    list = list.filter((recipe) => compatibleKeys.has(recipe.key));
+  }
   if (cookableOnly) list = list.filter((r) => r.availability.coverage >= 95);
   if (gymOnly) list = list.filter((r) => (r.tags || []).includes('gym') || (r.tags || []).includes('high-protein'));
 

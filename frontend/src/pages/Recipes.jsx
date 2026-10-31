@@ -5,22 +5,29 @@ import api from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import Icon from '../components/Icon.jsx';
 import Modal from '../components/Modal.jsx';
+import { getAccountType } from '../utils/accountType.js';
 
 export default function Recipes() {
-  const { toast, t } = useApp();
+  const { toast, t, user } = useApp();
   const [data, setData] = useState(null);
   const [q, setQ] = useState('');
-  const [diet, setDiet] = useState('');
+  const [diet, setDiet] = useState(() => {
+    const saved = getAccountType(user) === 'household' ? user?.household?.diet || 'veg' : '';
+    return saved === 'custom' ? '' : saved;
+  });
+  const [cuisine, setCuisine] = useState('');
   const [meal, setMeal] = useState('');
   const [cookable, setCookable] = useState(false);
   const [gym, setGym] = useState(false);
   const [sort, setSort] = useState('smart');
   const [adding, setAdding] = useState(false);
+  const householdAccount = getAccountType(user) === 'household';
 
   const load = async () => {
     const params = {};
     if (q) params.q = q;
     if (diet) params.diet = diet;
+    if (cuisine) params.cuisine = cuisine;
     if (meal) params.meal = meal;
     if (cookable) params.cookable = '1';
     if (gym) params.gym = '1';
@@ -28,9 +35,11 @@ export default function Recipes() {
     const { data } = await api.get('/recipes', { params });
     setData(data);
   };
-  useEffect(() => { load().catch(() => toast('Could not load recipes', 'err')); }, [q, diet, meal, cookable, gym, sort]);
+  const globalDiet = getAccountType(user) === 'household' ? user?.household?.diet || 'veg' : '';
+  useEffect(() => setDiet(globalDiet === 'custom' ? '' : globalDiet), [globalDiet]);
+  useEffect(() => { load().catch(() => toast('Could not load recipes', 'err')); }, [q, diet, cuisine, meal, cookable, gym, sort]);
 
-  const diets = ['', 'veg', 'egg', 'nonveg'];
+  const diets = ['', 'veg', 'egg', 'nonveg', 'vegan', 'jain'];
   const meals = ['', 'breakfast', 'lunch', 'dinner', 'snack'];
 
   return (
@@ -71,9 +80,13 @@ export default function Recipes() {
           <input className="input" placeholder="Search recipe or cuisine..." value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 34 }} />
           <Icon name="search" size={15} style={{ position: 'absolute', left: 11, top: 12, color: 'var(--faint)' }} />
         </div>
-        <select className="input" style={{ width: 130 }} value={diet} onChange={(e) => setDiet(e.target.value)}>
-          {diets.map((d) => <option key={d} value={d}>{d === '' ? 'All diets' : d}</option>)}
+        <select className="input" style={{ width: 180 }} aria-label="Filter cuisine" value={cuisine} onChange={(e) => setCuisine(e.target.value)}>
+          <option value="">All cuisines</option>
+          {['North Indian', 'South Indian', 'Rajasthani', 'Gujarati', 'Maharashtrian', 'Bengali', 'Punjabi'].map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
+        {!householdAccount && <select className="input" style={{ width: 130 }} value={diet} onChange={(e) => setDiet(e.target.value)}>
+          {diets.map((d) => <option key={d} value={d}>{d === '' ? 'All diets' : d[0].toUpperCase() + d.slice(1)}</option>)}
+        </select>}
         <select className="input" style={{ width: 140 }} value={meal} onChange={(e) => setMeal(e.target.value)}>
           {meals.map((m) => <option key={m} value={m}>{m === '' ? 'All meals' : m}</option>)}
         </select>
@@ -118,7 +131,7 @@ export default function Recipes() {
   );
 }
 
-/* ---------------- Add recipe flow with AI quantity estimation ---------------- */
+/* ---------------- Add recipe flow with quantity estimation ---------------- */
 function AddRecipeModal({ open, onClose, onAdded }) {
   const { toast } = useApp();
   const [form, setForm] = useState({ name: '', cuisine: 'Home Kitchen', diet: 'veg', meal: ['lunch'], timeMin: 30, servings: 2, kcal: 300, steps: [''] });
@@ -145,7 +158,7 @@ function AddRecipeModal({ open, onClose, onAdded }) {
       });
       setIngs(data.ingredients.map((i) => ({ ...i })));
       setEstimated(true);
-      toast(data.engine === 'ai' ? 'AI estimated the quantities' : 'Estimated from standard portions (AI offline)', 'ok', data.engine === 'ai' ? 'AI done' : 'Heuristic');
+      toast('Ingredient quantities estimated', 'ok', 'Estimate ready');
     } catch (e) { toast(e.response?.data?.error || 'Estimate failed', 'err'); }
     setEstimating(false);
   };
@@ -217,7 +230,7 @@ function AddRecipeModal({ open, onClose, onAdded }) {
       <div className="flex mt-2" style={{ gap: 8 }}>
         <button className="btn" onClick={() => setIngs((a) => [...a, { name: '', qty: '', unit: 'g' }])}><Icon name="plus" /> Ingredient</button>
         <button className="btn btn-primary" onClick={estimate} disabled={estimating}>
-          <Icon name="sparkles" /> {estimating ? 'Estimating…' : estimated ? 'Re-estimate (AI)' : 'AI estimate quantities'}
+            <Icon name="sparkles" /> {estimating ? 'Estimating…' : estimated ? 'Estimate again' : 'Estimate quantities'}
         </button>
       </div>
       <div className="small muted mt-1">Enter each amount yourself, or leave it blank and Save will estimate it. Estimates are labeled and editable.</div>

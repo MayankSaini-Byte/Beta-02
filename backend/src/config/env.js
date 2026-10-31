@@ -1,6 +1,5 @@
-require('dotenv').config();
-
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const env = {
   PORT: parseInt(process.env.PORT || '5000', 10),
@@ -16,7 +15,9 @@ const env = {
   MODEL_SERVICE_URL: (process.env.MODEL_SERVICE_URL || '').trim(),
   MODEL_TIMEOUT_MS: parseInt(process.env.MODEL_TIMEOUT_MS || '60000', 10),
   // Shared secret the ESP32 load-cell firmware sends in the x-device-key header
-  DEVICE_KEY: process.env.DEVICE_KEY || 'secret-device-key'
+  DEVICE_KEY: process.env.DEVICE_KEY || 'secret-device-key',
+  MULTISTOREAPI: (process.env.MULTISTOREAPI || '').trim(),
+  REWALTO_CORE_API_URL: (process.env.REWALTO_CORE_API_URL || 'https://api.rewalto.com').trim().replace(/\/$/, '')
 };
 
 env.FILE_DB_PATH = env.FILE_DB_PATH

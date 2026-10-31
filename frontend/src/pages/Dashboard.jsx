@@ -8,6 +8,7 @@ import StatCard from '../components/StatCard.jsx';
 import StockCard from '../components/StockCard.jsx';
 import AddItemModal from '../components/AddItemModal.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import { getAccountType } from '../utils/accountType.js';
 
 const sevColor = { danger: 'var(--red)', warning: 'var(--amber)', info: 'var(--blue)' };
 const chipClass = { full: 'chip-ok', partial: 'chip-warn', missing: 'chip-danger' };
@@ -29,7 +30,12 @@ export default function Dashboard() {
     setData(d2.data);
   };
 
-  useEffect(() => { load().catch(() => toast('Could not load kitchen stock', 'err')); }, []);
+  useEffect(() => {
+    const refresh = () => load().catch(() => toast('Could not load kitchen stock', 'err'));
+    refresh();
+    window.addEventListener('ks:household-diet-changed', refresh);
+    return () => window.removeEventListener('ks:household-diet-changed', refresh);
+  }, []);
 
   const exportCsv = async () => {
     setExporting(true);
@@ -73,6 +79,23 @@ export default function Dashboard() {
   );
 
   const hh = (user && user.household) || {};
+  const accountType = getAccountType(user);
+  const household = accountType === 'household';
+  const outletKind = ({ 'cloud-kitchen': 'Cloud kitchen', restaurant: 'Restaurant', cafe: 'Café', tiffin: 'Tiffin centre', pg: 'PG / hostel' })[user?.businessProfile?.businessType] || 'Kitchen';
+  const freshness = useMemo(() => {
+    const produce = (data?.items || []).filter((item) => /fruit|vegetable|produce/i.test(`${item.category || ''} ${item.name || ''}`));
+    if (!produce.length) return null;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const scores = produce.map((item) => {
+      if (!item.expiryDate) return 80;
+      const expiry = new Date(item.expiryDate);
+      if (Number.isNaN(expiry.getTime())) return 80;
+      expiry.setHours(0, 0, 0, 0);
+      const days = Math.ceil((expiry - today) / 86400000);
+      return days < 0 ? 0 : days === 0 ? 15 : days <= 2 ? 35 : days <= 5 ? 60 : days <= 7 ? 75 : 95;
+    });
+    return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+  }, [data]);
   const hour = new Date().getHours();
   const greet = hour < 12 ? t('goodMorning') : hour < 17 ? t('goodAfternoon') : t('goodEvening');
 
@@ -88,19 +111,19 @@ export default function Dashboard() {
         <div>
           <h1 style={{ fontSize: 24 }}>{greet}, {(user && user.name || 'Chef').split(' ')[0]}</h1>
           <div className="flex wrap mt-1" style={{ gap: 7 }}>
-            <span className="chip chip-ok"><Icon name="user" /> {hh.adults ?? 2} adults</span>
-            {hh.children > 0 && <span className="chip chip-info"><Icon name="user" /> {hh.children} children</span>}
-            <span className="chip"><Icon name="leaf" /> {hh.diet || 'veg'}</span>
+            <span className="chip chip-ok"><Icon name={household ? 'user' : 'users'} /> {household ? `${hh.adults ?? 2} adults${hh.children ? ` · ${hh.children} children` : ''}` : `${user?.businessProfile?.dailyServings || hh.residents || 2} people served daily`}</span>
+            <span className="chip"><Icon name="home" /> {accountType === 'commercial' ? `${user?.businessProfile?.outletName || 'Commercial kitchen'} · ${outletKind}` : accountType === 'service' ? `${user?.businessProfile?.outletName || 'Food service'} · ${outletKind}` : 'Household'}</span>
+            {household && <span className="chip"><Icon name="leaf" /> {hh.foodPractice === 'jain' ? 'Jain kitchen' : hh.foodPractice === 'satvik' ? 'Satvik kitchen' : hh.foodPractice === 'halal' ? 'Halal kitchen' : hh.diet === 'jain' ? 'Jain' : hh.diet === 'nonveg' ? 'Non-vegetarian' : hh.diet === 'vegan' ? 'Vegan' : hh.diet === 'egg' ? 'Eggetarian' : hh.diet === 'custom' ? 'All diets' : 'Vegetarian'}</span>}
             <span className="chip"><Icon name="clock" /> {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
           </div>
         </div>
         <div className="flex">
-          <Link to="/planner" className="btn"><Icon name="planner" /> {t('planWeek')}</Link>
+          {household && <Link to="/planner" className="btn"><Icon name="planner" /> {t('planWeek')}</Link>}
           <button className="btn btn-primary" onClick={() => setAdding(true)}><Icon name="plus" /> {t('addItems')}</button>
         </div>
       </motion.div>
 
-      {dash && dash.preMealAlert && (
+      {household && dash && dash.preMealAlert && (
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="pre-alert">
           <span className="pulse-dot" />
           <div style={{ flex: 1 }}>
@@ -117,12 +140,18 @@ export default function Dashboard() {
           <StatCard icon="alert" tone="amber" label={t('runningLow')} value={dash.stats.low} />
           <StatCard icon="clock" tone="blue" label={t('expiring')} value={dash.stats.expiringSoon} />
           <StatCard icon="x" tone="red" label={t('expiredOut')} value={dash.stats.expired + dash.stats.out} />
-          <StatCard icon="budget" tone="violet" label={t('kitchenValue')} value={dash.stats.estValue} prefix="₹" />
+          {!household && <StatCard icon="budget" tone="violet" label={t('kitchenValue')} value={dash.stats.estValue} prefix="₹" />}
+          {freshness !== null && <StatCard icon="leaf" tone="green" label="Freshness index" value={`${freshness}%`} title="Estimate based on saved expiry dates for fruit and vegetable items." />}
         </div>
       )}
 
+      {household && <section className="premium-feature-row">
+        <div className="premium-feature-teaser"><span className="premium-pill">PREMIUM</span><b>Insights & Accuracy</b><small>See how stock accuracy and kitchen habits change over time.</small></div>
+        <div className="premium-feature-teaser"><span className="premium-pill">PREMIUM</span><b>Wastage Watch</b><small>Track expired items and spot what your household can use sooner.</small></div>
+      </section>}
+
       {/* ---------- Today's meals ---------- */}
-      {dash && (
+      {household && dash && (
         <div className="card mt-3" style={{ padding: 18 }}>
           <div className="section-head" style={{ marginBottom: 12 }}>
             <div>
@@ -190,7 +219,7 @@ export default function Dashboard() {
                   <span className="pulse-dot" style={{ background: u.daysToExpiry < 0 ? 'var(--red)' : undefined }} />
                 </div>
                 <span className="small muted">{u.daysToExpiry < 0 ? 'expired - remove today' : u.daysToExpiry === 0 ? 'expires today' : `${u.daysToExpiry} day${u.daysToExpiry === 1 ? '' : 's'} left`}</span>
-                <span className="small">{u.qtyDisplay} · ~{inr(u.estValue)}</span>
+                <span className="small">{u.qtyDisplay}{household ? '' : ` · ~${inr(u.estValue)}`}</span>
               </div>
             ))}
           </div>
@@ -213,7 +242,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="flex wrap mb-2" style={{ gap: 7 }}>
+      <div className="inventory-category-scroll">
         <button className={`chip ${cat === 'all' ? 'chip-active' : ''}`} onClick={() => setCat('all')}>All ({data ? data.items.length : 0})</button>
         {categories.map((c) => (
           <button key={c} className={`chip ${cat === c ? 'chip-active' : ''}`} onClick={() => setCat(c)}>{c.replace('-', ' ')}</button>
@@ -228,7 +257,7 @@ export default function Dashboard() {
         </EmptyState>
       )}
 
-      <div className="stock-grid">
+      <div className="inventory-scroll-panel"><div className="stock-grid">
         {filtered.map((item, i) => (
           <StockCard
             key={item._id} item={item} index={i}
@@ -236,15 +265,15 @@ export default function Dashboard() {
             onDeleted={(id) => setData((d) => ({ ...d, items: d.items.filter((x) => x._id !== id) }))}
           />
         ))}
-      </div>
+      </div></div>
 
       {data && data.items.some((i) => i.state !== 'ok') && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card mt-3" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div>
             <b style={{ fontFamily: 'var(--font-display)', fontSize: 14.5 }}>Some items need attention</b>
-            <div className="small muted mt-1">Sync them into your shopping list and compare prices across 4 stores - best cart in one click.</div>
+            <div className="small muted mt-1">{household ? 'Sync these items into your shopping list and compare live store offers.' : 'Prepare a restock request for a saved vendor.'}</div>
           </div>
-          <Link to="/shopping" className="btn btn-primary"><Icon name="cart" /> Open smart shopping</Link>
+          <Link to={household ? '/shopping' : '/vendors'} className="btn btn-primary"><Icon name={household ? 'cart' : 'whatsapp'} /> {household ? 'Open shopping list' : 'Restock with a vendor'}</Link>
         </motion.div>
       )}
 

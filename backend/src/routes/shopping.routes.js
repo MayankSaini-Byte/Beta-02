@@ -8,6 +8,7 @@ const { daysUntil } = require('../utils/dates');
 const { logActivity } = require('../services/activityService');
 const { decoratePlan } = require('../services/plannerService');
 const { getOrCreatePlan } = require('../services/mealPlanStore');
+const { searchListings, compareOffers } = require('../services/rewaltoService');
 
 const router = express.Router();
 router.use(auth);
@@ -17,6 +18,13 @@ async function listDoc(db, userId) {
   let doc = await lists.findOne({ ownerId: userId });
   if (!doc) doc = await lists.insertOne({ ownerId: userId, items: [] });
   return doc;
+}
+
+async function requireHousehold(req) {
+  const user = await req.db.col('users').findOne({ _id: req.userId });
+  if (!user) throw httpError(401, 'User not found');
+  const accountType = user.accountType || (user.household?.kitchenType === 'commercial' ? 'commercial' : user.household?.kitchenType === 'hostel' ? 'service' : 'household');
+  if (accountType !== 'household') throw httpError(403, 'Store price comparison is available for household accounts');
 }
 
 /** Auto-generated items: out-of-stock + below-threshold pantry items */
@@ -272,19 +280,69 @@ router.post('/share', asyncH(async (req, res) => {
 
 // POST /api/shopping/compare { items }
 router.post('/compare', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const items = (req.body || {}).items || [];
   if (!items.length) throw httpError(400, 'Provide at least one item to compare');
   res.json(compareBasket(items));
 }));
 
+// Live Rewalto comparison. This is deliberately separate from /compare, which
+// remains the clearly labelled deterministic demo used by the simulated cart.
+router.get('/live-compare/status', asyncH(async (req, res) => {
+  await requireHousehold(req);
+  const env = require('../config/env');
+  res.json({ configured: Boolean(env.MULTISTOREAPI), provider: 'Rewalto', cacheDays: 7 });
+}));
+
+router.post('/live-compare', asyncH(async (req, res) => {
+  await requireHousehold(req);
+  const { items, pincode, forceRefresh = false } = req.body || {};
+  const pin = String(pincode || '').trim();
+  if (!/^[1-9]\d{5}$/.test(pin)) throw httpError(400, 'Enter a valid six-digit Indian delivery PIN.');
+  if (!Array.isArray(items) || !items.length || items.length > 20) throw httpError(400, 'Choose between 1 and 20 shopping items to compare.');
+  const normalized = items.map((item) => ({
+    name: String(item?.name || '').trim().slice(0, 100),
+    qty: Number(item?.qty),
+    unit: String(item?.unit || '')
+  }));
+  if (normalized.some((item) => !item.name || !Number.isFinite(item.qty) || item.qty <= 0 || !['g', 'kg', 'ml', 'l', 'L', 'pc', 'pieces'].includes(item.unit))) {
+    throw httpError(400, 'Every item needs a name, positive amount, and supported unit.');
+  }
+
+  const comparisons = [];
+  for (const item of normalized) {
+    try {
+      const result = await searchListings(item.name, pin, Boolean(forceRefresh));
+      const matched = compareOffers(result.listings, item);
+      comparisons.push({ ...item, ...matched, credits: result.credits, cached: result.cached, asOf: result.asOf });
+    } catch (error) {
+      comparisons.push({ ...item, offers: [], cheapest: null, cached: false, error: error.message, requestId: error.requestId || null });
+    }
+  }
+
+  const availableItems = comparisons.filter((item) => !item.error);
+  const cheapest = availableItems.map((item) => item.cheapest);
+  const cheapestBasketMinor = cheapest.length === comparisons.length && cheapest.every(Boolean)
+    ? cheapest.reduce((sum, offer) => sum + offer.lineTotalMinor, 0) : null;
+  const retailers = [...new Set(availableItems.flatMap((item) => item.offers.filter((offer) => offer.comparable).map((offer) => offer.retailer)))];
+  const storeBaskets = retailers.map((retailer) => {
+    const offers = availableItems.map((item) => item.offers.filter((offer) => offer.comparable && offer.retailer === retailer).sort((a, b) => a.lineTotalMinor - b.lineTotalMinor)[0]);
+    return offers.every(Boolean) ? { retailer, totalMinor: offers.reduce((sum, offer) => sum + offer.lineTotalMinor, 0) } : null;
+  }).filter(Boolean).sort((a, b) => a.totalMinor - b.totalMinor);
+  const creditsCharged = comparisons.reduce((total, item) => total + (item.cached ? 0 : Number(item.credits?.charged || 0)), 0);
+  res.json({ provider: 'Rewalto', pincode: pin, items: comparisons, cheapestBasketMinor, bestSingleStore: storeBaskets[0] || null, creditsCharged, cachedItems: comparisons.filter((item) => item.cached).length });
+}));
+
 // GET /api/shopping/quotes?name=&qty=&unit=
 router.get('/quotes', asyncH(async (req, res) => {
+  await requireHousehold(req);
   if (!req.query.name) throw httpError(400, 'name query param required');
   res.json(quotesFor({ name: req.query.name, key: req.query.key, qty: Number(req.query.qty) || 1, unit: req.query.unit || 'g' }));
 }));
 
 // GET /api/shopping/cart
 router.get('/cart', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const cart = await req.db.col('carts').findOne({ ownerId: req.userId, status: 'active' });
   const order = await req.db.col('carts').findOne({ ownerId: req.userId, status: 'ordered' });
   res.json({ cart, lastOrder: order });
@@ -292,6 +350,7 @@ router.get('/cart', asyncH(async (req, res) => {
 
 // POST /api/shopping/cart { providerId, items }
 router.post('/cart', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const { providerId } = req.body || {};
   const items = (req.body || {}).items || [];
   const provider = PROVIDERS.find((p) => p.id === providerId);
@@ -326,6 +385,7 @@ router.post('/cart', asyncH(async (req, res) => {
 
 // POST /api/shopping/cart/checkout
 router.post('/cart/checkout', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const carts = req.db.col('carts');
   const cart = await carts.findOne({ ownerId: req.userId, status: 'active' });
   if (!cart) throw httpError(404, 'No active cart. Compare prices and add items first.');
@@ -337,6 +397,7 @@ router.post('/cart/checkout', asyncH(async (req, res) => {
 
 // POST /api/shopping/cart/receive - delivery arrives -> stock updated
 router.post('/cart/receive', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const carts = req.db.col('carts');
   const pantries = req.db.col('pantries');
   const auditlogs = req.db.col('auditlogs');
@@ -383,6 +444,7 @@ router.post('/cart/receive', asyncH(async (req, res) => {
 // pre-filled search page on the store itself: the list "arrives" there and the
 // user ticks items into the real cart. Copy text included as the keyboard path.
 router.post('/handoff', asyncH(async (req, res) => {
+  await requireHousehold(req);
   const { providerId } = req.body || {};
   const items = (req.body || {}).items || [];
   const provider = PROVIDERS.find((p) => p.id === providerId);

@@ -11,9 +11,23 @@ Node.js + Express + MongoDB (Mongoose models) · React (Vite) · FastAPI model s
 
 ---
 
+## Account-specific workspaces (current)
+
+New accounts choose one workspace at sign-up: **Household**, **Commercial kitchen** (restaurant, cloud kitchen, or café), or **Food service** (tiffin centre or PG). New accounts complete a short profile before reaching the dashboard; existing accounts keep their saved workspace and go straight to the app.
+
+- **Household:** onboarding collects adult/child counts, each person’s diet and allergies, regional cuisine, food practice (Jain, Satvik, or Halal), address, and nutrition targets. The workspace has Dashboard, Recipes, Meal Planner, Shopping, Scan & Detect (marked Premium), and Profile. Household inventory hides estimated kitchen value and storage devices; categories scroll horizontally and stock cards live in a bounded scroll panel. Premium Insights & Accuracy and Wastage Watch are presented as premium features.
+- **Commercial kitchen:** onboarding collects restaurant/cloud kitchen/café type, outlet name, location, and daily servings. It has Dashboard, Recipes, Shopping, Scan & Detect, Storage (weighing and storage points), Insights & Accuracy, Vendor Restocking, and Profile. Store comparison is not offered; low stock and saved shopping items can be prepared as a WhatsApp message for a saved supplier.
+- **Food service:** onboarding is tailored to tiffin centres and PGs, then opens the commercial operations workspace with the service type and daily servings in the profile.
+- **Household nutrition:** log an outside meal’s calories and protein for a selected person. Remaining daily targets update immediately, and recipe suggestions respect that person’s food preferences and calorie budget. Profile changes regenerate the household plan.
+- **Price comparison:** household comparisons show required quantities, pack counts, estimated basket cost, and unit price together. The inventory freshness index uses expiry dates for fruit and vegetables. Shopping-list copy writes to the clipboard without displaying the copied text.
+
+Premium labels in this local prototype are UI classifications; subscription billing and entitlement checks are not implemented.
+
+---
+
 ## What's new in v3 (latest changes)
 
-1. **Deep-link ordering from the shopping list** - "Order on the real app (hand-off)": one tap opens **Instamart / Blinkit / Zepto / BigBasket** with every list item's **pre-filled search page** (per-item "Open in store" links + copy-ready list text). No public cart APIs exist, so the hand-off is the honest, working path - and the simulated 4-store compare + cart is still there for the fata-fat demo.
+1. **Price comparison** - use Rewalto live listings by delivery PIN to compare collected store offers by pack quantity and effective price, then open the retailer's product page.
 2. **Barcode is gone.** The Scan page now has exactly two tools, both camera-only:
    - **Expiry date checker** - photograph the date printed on the pack → the model reads it → you review → it lands on the right stock item with a 7-day reminder armed. Can't read it? "Retake or type the date manually" - it never guesses.
    - **Receipt scanner** - the full real flow: `phone camera → POST /api/receipts/scan → model service (Python/FastAPI, hard timeout) → unit parsing + fuzzy match → review screen → POST /api/receipts/confirm → stock`. SHA-256 duplicate protection (the same bill can never double your stock), amber rows under 0.7 confidence, editable qty/unit/price/match, and honest failure cards ("Couldn't read this receipt. Retake, or add items manually.").
@@ -42,12 +56,13 @@ Node.js + Express + MongoDB (Mongoose models) · React (Vite) · FastAPI model s
 - **Recipes**: protein/carbs/fat/fiber on every recipe (library + detail), **Gym mode** (protein sort, protein-density, cut/bulk/maintain advice), **Add recipe** flow with **AI quantity estimation** (z-ai SDK; labeled "estimated, editable" with heuristic fallback), ratings labeled **(editorial)**.
 - **Planner**: manual **swap** modal (with coverage badges), **copy day**, **lock** (re-optimize keeps locked meals), per-meal stock chips, per-meal **"Why this meal"** explainers, budget bar, sync to list.
 - **Stock**: edit + delete with units/conversion, expiry + category filters, threshold markers (already in v1, kept + polished).
-- **Shopping**: grouped by category, duplicates merged, **Mark bought → stock update**, **WhatsApp share + copy list**, renamed to **"Price comparison (simulated)"** everywhere.
-- **Settings**: household **members with roles** (admin/member, adult/child), **Hindi/English toggle** (nav + key chrome), gym goal, budget.
+- **Shopping**: grouped by category, duplicates merged, **Mark bought → stock update**, **WhatsApp share + copy list**, plus a separate **Price Compare** page for Rewalto live listings by PIN with availability signals and retailer links.
+- **Profile**: account and kitchen details, household members with roles (admin/member, adult/child), language, theme, inventory export, budget and fitness goal.
+- **Kitchen profiles (earlier version)**: profile edits support kitchen preferences and household members; the current account-specific workspace flow above replaces the earlier sign-up questionnaire.
 
 ### P2 — bonus points
 
-1. **IoT / Devices page** (`#/devices`): per-container live weight, battery bar, Wi-Fi, "last seen", **online/stale badges**, **sensor-vs-app conflict cards** ("Trust sensor / Keep app"), weight-over-time chart, **Tare** calibration, **Simulate sensor** (venue-Wi-Fi fallback), link sensor → stock item, and a **nonsense-value guard** ("Send junk" button proves rejected readings can't corrupt stock).
+1. **Storage page** (`#/devices` for commercial and food-service workspaces): per-container live weight, battery, Wi-Fi, last seen, sensor-vs-app conflict cards, weight-over-time chart, Tare calibration, simulated sensor readings, and sensor-to-stock linking.
 2. **Stock accuracy**: accuracy % from physical counts, **accuracy-over-time chart**, biggest-gap items in the audit trail, reconciliation history seeded, sensor-vs-expected evidence trail.
 3. **Scan & Detect**: barcode → stock (USB HID + camera + Open Food Facts), **receipt scan** (local PaddleOCR image extraction or local text parsing → review → stock), produce auto-detect (on-device MobileNet), and clear retry/manual-entry feedback.
 4. **Insights**: Stock-by-category **₹ value chart**, **wastage watch with money wasted**, spend trend (labeled simulated), activity feed.
@@ -108,18 +123,17 @@ kitchensync/
 │       ├── context/AppContext.jsx # auth, theme, language, toasts, notifications
 │       ├── components/            # Layout, StockCard, AddItemModal, PriceTable, NotificationBell…
 │       ├── pages/                 # Login, Dashboard, Recipes, RecipeDetail, Planner, Shopping (deep-link handoff),
-│       │                          # Scan (expiry checker + receipt scanner), Devices (+weighing station), Analytics, Settings
+│       │                          # Scan (expiry checker + receipt scanner), Devices (+weighing station), Analytics, Profile
 │       └── styles/global.css      # design system (dark + cream-light, Fraunces/Inter)
 ├── model-service/                 # Local Python/FastAPI PaddleOCR service (receipts + expiry)
 ├── hardware/                      # ESP32 + HX711 firmware, wiring, calibration, venue tips
 ├── docs/API.md                    # REST reference
 ├── ml/train-produce-model/        # custom produce-model training pipeline
-└── docker-compose.yml
 ```
 
 ## Run locally with `runner.bat` (Windows)
 
-KitchenSync runs entirely on your laptop. The Node.js backend serves the built website at `http://localhost:5000`, and the local PaddleOCR service runs alongside it on `127.0.0.1:8000`. No cloud deployment or external database is required. The default JSON database persists at `db/kitchensync-store.json` and is local-only.
+KitchenSync runs entirely on your laptop. The Node.js backend serves the built website and API together at `http://localhost:5000`, and the local PaddleOCR service runs alongside it on `127.0.0.1:8000`. No cloud deployment or external database is required. The default JSON database persists at `db/kitchensync-store.json` and is local-only.
 
 ### One-time setup
 
@@ -167,21 +181,12 @@ npm --prefix frontend run dev
 
 The Vite development UI runs on port 5173 and proxies API requests to the backend on port 5000.
 
-### Optional Docker run
-
-Docker Compose is an alternative local setup. It does not deploy the app:
-
-```bash
-docker compose build model-service
-docker compose run --rm model-service python setup_models.py
-docker compose up --build
-```
-
 ## The honest bits (for judges)
 
 | Component | Status |
 |---|---|
-| Store **prices** (Instamart/Blinkit/Zepto/BigBasket) | **Simulated** - deterministic per item+store+day; no public APIs, scraping breaks ToS. Pluggable adapter in `priceService.js`. Headings say "simulated". |
+| Sample basket estimates (Instamart/Blinkit/Zepto/BigBasket) | Deterministic simulator for the demo cart; it stays labelled simulated. |
+| Live grocery listings | Rewalto Core listing search, keyed by a delivery PIN, cached for 7 days in the backend process. Only compatible packs contribute to basket totals; unknown stock is not represented as confirmed in stock. Product links open the retailer listing where provided. Configure `MULTISTOREAPI` in `backend/.env`. |
 | **Ordering on the real stores** | **Deep-link hand-off** - each list item opens its pre-filled search page on the store; there is no public cart API, so the cart tap happens in the store's own app. Copy-ready list text included. |
 | **Receipt scan** | Photo → local PaddleOCR PP-OCRv5 mobile CPU model → unit parsing + fuzzy matching → **human review** → stock. SHA-256 duplicate guard. Receipt images are not sent to cloud OCR/vision APIs. |
 | **Expiry date checker** | Photo → model/vision → **editable review** → item expiry + reminder. Refuses to guess: no readable date → "retake or type it manually". |
@@ -193,7 +198,7 @@ docker compose up --build
 
 ## Slide: "What we deliberately did not build"
 
-- **Real checkout in quick-commerce apps** - no public cart APIs + ToS. We do a **deep-link hand-off** instead: every list item opens its pre-filled search on Instamart/Blinkit/Zepto/BigBasket, plus a copy-ready list; the simulated compare/cart/delivery loop stays for the demo. Adapter interface ready for official/affiliate APIs.
+- **Real quick-commerce checkout** - the live comparison links to store listings where Rewalto returns a URL; the app does not place an order for you. The separate simulated cart remains a demo, and the deep-link hand-off still opens item searches in Instamart/Blinkit/Zepto/BigBasket.
 - **Real scraped prices** - ToS + geo-fragile. Deterministic simulator behind one swappable file, clearly labeled everywhere.
 - **Barcode scanning** - dropped on purpose: barcodes identify the *product*, not *your* pack's freshness. The phone-camera **expiry date checker** + **receipt scanner** cover the actual jobs (what is it, how much, until when) with zero extra hardware.
 - **Fridge camera item recognition** - beyond scope for the demo window; the model-service contract is ready if you want to add it.
@@ -214,4 +219,4 @@ Full reference: **docs/API.md**. 45+ endpoints under `/api` (JWT Bearer), plus `
 
 ### Bonus features beyond the problem statement
 
-1. JWT auth + multi-user **households with roles** 2. Expiry reminders + **notification center** 3. **Stock accuracy** (reconciliations + accuracy-over-time + post-cook re-weigh) 4. Wastage & spend **analytics in ₹** 5. Budget **constraint in the planner** with cheaper swaps 6. Diet/taste/allergy personalization 7. FIFO use-first scheduling 8. Units engine (g/kg/ml/L/pc + sanity caps) 9. Hindi + English synonym matching 10. CSV export 11. **Dark + cream-light themes**, Fraunces editorial type 12. Zero-config **persistent** demo mode + docker-compose + dev-mongo + ensure-mongo 13. **Deep-link order hand-off** to 4 real stores 14. Pluggable price-provider adapters 15. Simulated delivery loop 16. **Activity log** (who did what) 17. **Hindi/English UI toggle** 18. **Gym corner** with macro intelligence 19. **Receipt scanner + expiry date checker** with review-before-apply 20. REST API docs + automated checks
+1. JWT auth + multi-user **households with roles** 2. Expiry reminders + **notification center** 3. **Stock accuracy** (reconciliations + accuracy-over-time + post-cook re-weigh) 4. Wastage & spend **analytics in ₹** 5. Budget **constraint in the planner** with cheaper swaps 6. Diet/taste/allergy personalization 7. FIFO use-first scheduling 8. Units engine (g/kg/ml/L/pc + sanity caps) 9. Hindi + English synonym matching 10. CSV export 11. **Dark + cream-light themes**, Fraunces editorial type 12. Zero-config **persistent** demo mode + dev-mongo + ensure-mongo 13. **Deep-link order hand-off** to 4 real stores 14. Pluggable price-provider adapters 15. Simulated delivery loop 16. **Activity log** (who did what) 17. **Hindi/English UI toggle** 18. **Gym corner** with macro intelligence 19. **Receipt scanner + expiry date checker** with review-before-apply 20. REST API docs + automated checks

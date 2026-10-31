@@ -40,7 +40,8 @@ export default function StockCard({ item, index, onChanged, onDeleted }) {
   const save = async () => {
     setBusy(true);
     try {
-      const { data } = await api.patch(`/pantry/${item._id}`, form);
+      const expirySource = form.expiryDate && form.expiryDate !== item.expiryDate ? 'entered' : item.expirySource || 'recorded';
+      const { data } = await api.patch(`/pantry/${item._id}`, { ...form, expirySource });
       onChanged(data.item);
       setEditing(false);
       toast(`${item.name} updated`);
@@ -60,9 +61,9 @@ export default function StockCard({ item, index, onChanged, onDeleted }) {
   };
 
   const expiryChip = () => {
-    if (item.expiryState === 'expired') return <span className="chip chip-bad"><Icon name="alert" /> Expired</span>;
-    if (item.expiryState === 'soon') return <span className="chip chip-warn"><Icon name="clock" /> {item.daysToExpiry}d left</span>;
-    if (item.expiryDate) return <span className="chip"><Icon name="clock" /> {new Date(item.expiryDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>;
+    if (item.expiryState === 'expired') return <span className={`chip ${item.expirySource === 'estimated' ? 'chip-warn' : 'chip-bad'}`}><Icon name="alert" /> {item.expirySource === 'estimated' ? 'Freshness estimate passed' : 'Expired'}</span>;
+    if (item.expiryState === 'soon') return <span className="chip chip-warn"><Icon name="clock" /> {item.expirySource === 'estimated' ? `Est. ${item.daysToExpiry}d left` : `${item.daysToExpiry}d left`}</span>;
+    if (item.expiryDate) return <span className="chip"><Icon name="clock" /> {item.expirySource === 'estimated' ? 'Est. freshness' : item.expirySource === 'scanned' ? 'Scanned' : item.expirySource === 'entered' ? 'Entered' : 'Recorded'} · {new Date(item.expiryDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>;
     return null;
   };
 
@@ -81,7 +82,7 @@ export default function StockCard({ item, index, onChanged, onDeleted }) {
             <div className="stock-name">{item.name}</div>
             <div className="stock-cat">{item.category.replace('-', ' ')}{item.state !== 'ok' && <span style={{ marginLeft: 6, color: item.state === 'out' ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{item.state === 'out' ? 'OUT' : 'LOW'}</span>}</div>
           </div>
-          {item.expiryState === 'expired' && <span className="pulse-dot" />}
+          {item.expiryState === 'expired' && item.expirySource !== 'estimated' && <span className="pulse-dot" />}
         </div>
 
         <div className="stock-qty">
@@ -124,9 +125,10 @@ export default function StockCard({ item, index, onChanged, onDeleted }) {
           </div>
         </div>
         <div className="field">
-          <label className="label">Expiry date</label>
+          <label className="label">Expiry / freshness date</label>
           <input className="input" type="date" value={(form.expiryDate || '').slice(0, 10)}
             onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
+          <div className="tiny muted mt-1">{item.expirySource === 'estimated' ? 'Typical freshness estimate from category shelf life, not a verified expiry date. Check the package and edit if needed.' : item.expirySource === 'scanned' ? 'Read from a package photo and confirmed by you.' : item.expirySource === 'entered' ? 'Entered manually by you.' : 'Previously recorded date; its original source was not saved.'}</div>
         </div>
         <div className="flex-between mt-2">
           <button className="btn btn-danger" onClick={remove} disabled={busy}><Icon name="trash" /> Remove item</button>

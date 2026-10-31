@@ -8,6 +8,7 @@
  */
 const express = require('express');
 const auth = require('../middleware/auth');
+const { requireAccountType } = require('../middleware/accountType');
 const { asyncH, httpError } = require('../middleware/errors');
 const env = require('../config/env');
 const iot = require('../services/iotService');
@@ -67,7 +68,7 @@ router.post('/reading', asyncH(async (req, res) => {
 /* ---------- browser -> server ---------- */
 
 // GET /api/scale/latest - live weight for the UI (poll every ~800 ms)
-router.get('/latest', auth, asyncH(async (req, res) => {
+router.get('/latest', auth, requireAccountType('commercial', 'service'), asyncH(async (req, res) => {
   const s = await getLatest(req.db);
   const age = s.ts ? Date.now() - s.ts : Infinity;
   res.json({
@@ -83,7 +84,7 @@ router.get('/latest', auth, asyncH(async (req, res) => {
 
 // POST /api/scale/simulate - venue-Wi-Fi fallback: fabricate a fresh stable
 // reading SERVER-SIDE so the demo survives missing hardware.
-router.post('/simulate', auth, asyncH(async (req, res) => {
+router.post('/simulate', auth, requireAccountType('commercial', 'service'), asyncH(async (req, res) => {
   const b = req.body || {};
   let grams = Number(b.grams);
   if (!Number.isFinite(grams) && b.itemId) {
@@ -97,7 +98,7 @@ router.post('/simulate', auth, asyncH(async (req, res) => {
 }));
 
 // POST /api/scale/stock/:id/weigh { mode: 'set'|'add', containerWeight } - weigh into stock
-router.post('/stock/:id/weigh', auth, asyncH(async (req, res) => {
+router.post('/stock/:id/weigh', auth, requireAccountType('commercial', 'service'), asyncH(async (req, res) => {
   const db = req.db;
   const b = req.body || {};
   const mode = b.mode === 'add' ? 'add' : 'set';
@@ -134,7 +135,7 @@ router.post('/stock/:id/weigh', auth, asyncH(async (req, res) => {
 }));
 
 // GET /api/scale/reweigh/:itemId - post-cook check: expected (app) vs measured (scale)
-router.get('/reweigh/:itemId', auth, asyncH(async (req, res) => {
+router.get('/reweigh/:itemId', auth, requireAccountType('commercial', 'service'), asyncH(async (req, res) => {
   const db = req.db;
   const item = await db.col('pantries').findOne({ _id: req.params.itemId, ownerId: req.userId });
   if (!item) throw httpError(404, 'Stock item not found');

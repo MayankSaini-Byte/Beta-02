@@ -5,6 +5,7 @@
  */
 const express = require('express');
 const auth = require('../middleware/auth');
+const { requireAccountType } = require('../middleware/accountType');
 const { asyncH, httpError } = require('../middleware/errors');
 const iot = require('../services/iotService');
 const { logActivity } = require('../services/activityService');
@@ -13,6 +14,7 @@ const { hash } = require('../utils/text');
 
 const router = express.Router();
 router.use(auth);
+router.use(requireAccountType('commercial', 'service'));
 
 async function latestReadings(db, ownerId) {
   const map = new Map();

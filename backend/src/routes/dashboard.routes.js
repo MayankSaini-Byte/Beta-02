@@ -5,6 +5,7 @@
  */
 const express = require('express');
 const auth = require('../middleware/auth');
+const { resolveAccountType } = require('../middleware/accountType');
 const { asyncH, httpError } = require('../middleware/errors');
 const { decoratePlan } = require('../services/plannerService');
 const { getOrCreatePlan } = require('../services/mealPlanStore');
@@ -25,16 +26,18 @@ router.get('/', asyncH(async (req, res) => {
   const pantryItems = await db.col('pantries').find({ ownerId: req.userId });
   const recipes = await db.col('recipes').find({});
 
-  // Keep dashboard aligned with the same current week as the planner.
-  const plan = await getOrCreatePlan(db, user);
-  const decorated = decoratePlan(plan, user, pantryItems, recipes);
+  const householdAccount = resolveAccountType(user) === 'household';
+  // Only household workspaces have meal plans. Commercial and service accounts
+  // should not create hidden planner records while loading their dashboard.
+  const plan = householdAccount ? await getOrCreatePlan(db, user) : null;
+  const decorated = plan ? decoratePlan(plan, user, pantryItems, recipes) : null;
   const today = todayISO();
-  const todayPlan = decorated.days.find((d) => d.date === today);
+  const todayPlan = decorated?.days.find((d) => d.date === today);
 
   const factor = portionFactor(user.household);
 
   // Today's meals with stock chips + done state
-  const meals = ['breakfast', 'lunch', 'dinner'].map((slot) => {
+  const meals = householdAccount ? ['breakfast', 'lunch', 'dinner'].map((slot) => {
     const m = todayPlan ? todayPlan.meals[slot] : null;
     if (!m) return { slot, recipe: null };
     return {
@@ -45,7 +48,7 @@ router.get('/', asyncH(async (req, res) => {
         missing: m.missing, done: m.done, locked: m.locked, why: m.why
       }
     };
-  });
+  }) : [];
 
   // Pre-meal alert: next upcoming meal (first not-done slot of today) missing items
   let preMealAlert = null;
@@ -105,8 +108,8 @@ router.get('/', asyncH(async (req, res) => {
     preMealAlert,
     useSoon,
     stats,
-    budget: decorated.summary.budget,
-    planKey: plan.weekKey
+    budget: decorated?.summary.budget || null,
+    planKey: plan?.weekKey || null
   });
 }));
 

@@ -14,6 +14,8 @@ const notificationRoutes = require('./routes/notifications.routes');
 const deviceRoutes = require('./routes/devices.routes');
 const memberRoutes = require('./routes/members.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
+const dietRoutes = require('./routes/diet.routes');
+const vendorRoutes = require('./routes/vendors.routes');
 const { apiNotFound, errorHandler } = require('./middleware/errors');
 
 function createApp(db) {
@@ -44,6 +46,8 @@ function createApp(db) {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/devices', deviceRoutes);
   app.use('/api/members', memberRoutes);
+  app.use('/api/diet', dietRoutes);
+  app.use('/api/vendors', vendorRoutes);
 
   app.use('/api', apiNotFound);
   app.use(errorHandler);

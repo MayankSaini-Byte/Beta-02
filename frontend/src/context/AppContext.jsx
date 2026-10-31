@@ -41,6 +41,10 @@ export function AppProvider({ children }) {
     if (!token) return;
     api.get('/auth/me').then(({ data }) => {
       if (data.mode) { localStorage.setItem('ks_mode', data.mode); setMode(data.mode); }
+      if (data.user) {
+        localStorage.setItem('ks_user', JSON.stringify(data.user));
+        setUser(data.user);
+      }
     }).catch(() => {});
   }, []);
 
@@ -71,8 +75,8 @@ export function AppProvider({ children }) {
     return data;
   };
 
-  const register = async (name, email, password) => {
-    const { data } = await api.post('/auth/register', { name, email, password });
+  const register = async (name, email, password, kitchen = {}) => {
+    const { data } = await api.post('/auth/register', { name, email, password, ...kitchen });
     persist(data.token, data.user, data.mode);
     return data;
   };

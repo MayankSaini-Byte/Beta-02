@@ -46,6 +46,7 @@ exit /b
 cd /d "%~dp0backend"
 set "MODEL_SERVICE_URL=http://127.0.0.1:8000"
 set "MODEL_TIMEOUT_MS=60000"
+set "PORT=5000"
 node src\server.js
 if errorlevel 1 echo The KitchenSync backend stopped with an error.
 pause

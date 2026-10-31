@@ -12,6 +12,8 @@ const { DeviceReadingSchema } = require('./DeviceReading');
 const { ReconciliationSchema } = require('./Reconciliation');
 const { ReceiptSchema } = require('./Receipt');
 const { ScaleStateSchema } = require('./ScaleState');
+const { DietLogSchema } = require('./DietLog');
+const { VendorSchema } = require('./Vendor');
 
 const SCHEMAS = {
   users: UserSchema,
@@ -26,7 +28,9 @@ const SCHEMAS = {
   devicereadings: DeviceReadingSchema,
   reconciliations: ReconciliationSchema,
   receipts: ReceiptSchema,
-  scalestate: ScaleStateSchema
+  scalestate: ScaleStateSchema,
+  dietlogs: DietLogSchema,
+  vendors: VendorSchema
 };
 
 module.exports = { SCHEMAS };

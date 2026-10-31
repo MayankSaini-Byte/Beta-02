@@ -15,6 +15,7 @@ const EXPIRY_WARN_DAYS = 7; // barcode/hardware reminder window: notify 1 week b
 
 function enrich(p) {
   const d = daysUntil(p.expiryDate);
+  const expirySource = p.expirySource || (p.expiryDate ? 'recorded' : null);
   const state = p.quantity <= 0 ? 'out' : p.quantity <= p.threshold ? 'low' : 'ok';
   const expiryState = d === null ? 'none' : d < 0 ? 'expired' : d <= EXPIRY_WARN_DAYS ? 'soon' : 'ok';
   return {
@@ -22,6 +23,7 @@ function enrich(p) {
     state,
     daysToExpiry: d,
     expiryState,
+    expirySource,
     remindOn: p.expiryDate ? addDaysISO(p.expiryDate, -EXPIRY_WARN_DAYS) : null,
     qtyDisplay: smartQty(p.quantity, p.unit),
     thresholdDisplay: smartQty(p.threshold, p.unit),
@@ -74,14 +76,16 @@ router.post('/', asyncH(async (req, res) => {
   const quantity = Math.max(0, Number(b.quantity) || 0);
   const unit = b.unit || (cat ? cat.unit : 'g');
   const threshold = b.threshold != null ? Math.max(0, Number(b.threshold)) : existing ? existing.threshold : Math.max(1, Math.round(quantity * 0.25));
-  const expiryDate = b.expiryDate || (existing && existing.expiryDate) || (cat ? addDaysISO(todayISO(), cat.shelfLifeDays) : addDaysISO(todayISO(), 7));
+  const mode = b.mode === 'set' ? 'set' : 'add';
+  const existingExpirySource = existing && (existing.expirySource || (existing.expiryDate ? 'recorded' : null));
+  const expiryDate = b.expiryDate || (existing && existingExpirySource !== 'estimated' && existing.expiryDate) || (cat ? addDaysISO(todayISO(), cat.shelfLifeDays) : addDaysISO(todayISO(), 7));
+  const expirySource = b.expiryDate ? 'entered' : existingExpirySource || 'estimated';
 
   if (existing) {
-    const mode = b.mode === 'set' ? 'set' : 'add';
     const nextQty = mode === 'add' ? existing.quantity + quantity : quantity;
     const updated = await pantries.updateOne(
       { _id: existing._id },
-      { quantity: nextQty, unit, threshold, expiryDate, capacity: Math.max(existing.capacity, Math.ceil(nextQty * 1.25), threshold * 3), category: b.category || existing.category, key: nameKey || existing.key, updatedAt: new Date().toISOString() }
+      { quantity: nextQty, unit, threshold, expiryDate, expirySource, capacity: Math.max(existing.capacity, Math.ceil(nextQty * 1.25), threshold * 3), category: b.category || existing.category, key: nameKey || existing.key, updatedAt: new Date().toISOString() }
     );
     return res.json({ item: enrich(updated), merged: true });
   }
@@ -96,6 +100,7 @@ router.post('/', asyncH(async (req, res) => {
     threshold,
     capacity: Math.max(Math.ceil(quantity * 1.25), threshold * 3, threshold + 1),
     expiryDate,
+    expirySource,
     addedBy: (req.body || {}).addedBy || 'Owner',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -109,6 +114,7 @@ router.patch('/:id', asyncH(async (req, res) => {
   const patch = { updatedAt: new Date().toISOString() };
   const b = req.body || {};
   for (const f of ['name', 'category', 'unit', 'expiryDate']) if (b[f] !== undefined) patch[f] = b[f];
+  if (b.expiryDate !== undefined) patch.expirySource = ['entered', 'scanned', 'estimated', 'recorded'].includes(b.expirySource) ? b.expirySource : 'entered';
   if (b.name !== undefined && !String(b.name).trim()) throw httpError(400, 'Item name cannot be empty');
   if (b.unit !== undefined && !['g', 'ml', 'pc'].includes(b.unit)) throw httpError(400, 'Unit must be g, ml, or pc');
   if (b.expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(b.expiryDate)) throw httpError(400, 'Expiry date must be YYYY-MM-DD');

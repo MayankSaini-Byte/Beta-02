@@ -24,7 +24,12 @@ export default function Planner() {
     const { data } = await api.get('/planner');
     setPlan(data.plan);
   };
-  useEffect(() => { load().catch(() => toast('Could not load plan', 'err')); }, []);
+  useEffect(() => {
+    const refresh = () => load().catch(() => toast('Could not load plan', 'err'));
+    refresh();
+    window.addEventListener('ks:household-diet-changed', refresh);
+    return () => window.removeEventListener('ks:household-diet-changed', refresh);
+  }, []);
 
   const act = async (fn, key) => {
     setBusy(key || 'busy');
@@ -94,7 +99,7 @@ export default function Planner() {
   const openSwap = async (date, slot, current) => {
     setSwapFor({ date, slot, current });
     try {
-      const params = { cookable: '0' };
+      const params = { meal: slot, compatible: '1' };
       const { data } = await api.get('/recipes', { params });
       setSwapOptions(data.recipes.filter((r) => r.key !== current).slice(0, 14));
     } catch { setSwapOptions([]); }

@@ -10,7 +10,11 @@ const { toBase } = require('../utils/units');
 const byKey = new Map(CATALOG.map((c) => [c.key, c]));
 
 function portionFactor(household) {
-  const adults = Number(household && household.adults) || 1;
+  if (household && ['hostel', 'commercial'].includes(household.kitchenType) && Number(household.residents) > 0) {
+    return Math.min(5000, Number(household.residents));
+  }
+  const rawAdults = Number(household && household.adults);
+  const adults = Number.isFinite(rawAdults) ? rawAdults : 1;
   const children = Number(household && household.children) || 0;
   return Math.max(0.5, adults + children * 0.5);
 }

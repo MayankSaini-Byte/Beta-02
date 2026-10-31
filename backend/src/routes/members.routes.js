@@ -7,6 +7,13 @@ const auth = require('../middleware/auth');
 const { asyncH, httpError } = require('../middleware/errors');
 const { logActivity } = require('../services/activityService');
 const crypto = require('crypto');
+const DIETS = ['inherit', 'veg', 'egg', 'nonveg', 'vegan', 'jain', 'custom'];
+
+function cleanAllergies(values) {
+  if (Array.isArray(values)) return [...new Set(values.map((value) => String(value).trim()).filter(Boolean))].slice(0, 30);
+  if (typeof values === 'string') return [...new Set(values.split(',').map((value) => value.trim()).filter(Boolean))].slice(0, 30);
+  return [];
+}
 
 const router = express.Router();
 router.use(auth);
@@ -33,7 +40,10 @@ router.post('/', asyncH(async (req, res) => {
     name: String(b.name).trim(),
     role: ['admin', 'member'].includes(b.role) ? b.role : 'member',
     type: ['adult', 'child'].includes(b.type) ? b.type : 'adult',
-    calorieTarget: Math.max(800, Number(b.calorieTarget) || (b.type === 'child' ? 1500 : 2000))
+    diet: DIETS.includes(b.diet) ? b.diet : 'inherit',
+    allergies: cleanAllergies(b.allergies),
+    calorieTarget: Math.max(800, Number(b.calorieTarget) || (b.type === 'child' ? 1500 : 2000)),
+    proteinTarget: Math.max(0, Number(b.proteinTarget) || 75)
   };
   const members = [...(user.members || []), member];
   await req.db.col('users').updateOne({ _id: user._id }, { members });
@@ -55,7 +65,10 @@ router.patch('/:id', asyncH(async (req, res) => {
       name: b.name !== undefined ? String(b.name).trim() : m.name,
       role: ['admin', 'member'].includes(b.role) ? b.role : m.role,
       type: ['adult', 'child'].includes(b.type) ? b.type : m.type,
-      calorieTarget: b.calorieTarget !== undefined ? Math.max(800, Number(b.calorieTarget) || m.calorieTarget) : m.calorieTarget
+      diet: DIETS.includes(b.diet) ? b.diet : m.diet || 'inherit',
+      allergies: b.allergies !== undefined ? cleanAllergies(b.allergies) : m.allergies || [],
+      calorieTarget: b.calorieTarget !== undefined ? Math.max(800, Number(b.calorieTarget) || m.calorieTarget) : m.calorieTarget,
+      proteinTarget: b.proteinTarget !== undefined ? Math.max(0, Number(b.proteinTarget) || 0) : m.proteinTarget || 75
     };
   });
   await req.db.col('users').updateOne({ _id: user._id }, { members });

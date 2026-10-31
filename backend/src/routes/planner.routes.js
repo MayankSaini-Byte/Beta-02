@@ -1,14 +1,17 @@
 const express = require('express');
 const auth = require('../middleware/auth');
+const { requireAccountType } = require('../middleware/accountType');
 const { asyncH, httpError } = require('../middleware/errors');
-const { decoratePlan, computeDeductions, SLOTS } = require('../services/plannerService');
+const { decoratePlan, computeDeductions, householdRecipeAllows, SLOTS } = require('../services/plannerService');
 const { getOrCreatePlan } = require('../services/mealPlanStore');
 const { compareBasket } = require('../services/priceService');
 const { logActivity } = require('../services/activityService');
 const { toBase } = require('../utils/units');
+const { portionFactor } = require('../services/availabilityService');
 
 const router = express.Router();
 router.use(auth);
+router.use(requireAccountType('household'));
 
 async function loadCtx(db, user) {
   const pantryItems = await db.col('pantries').find({ ownerId: user._id });
@@ -50,6 +53,9 @@ router.put('/slot', asyncH(async (req, res) => {
   if (key) {
     const recipe = await db.col('recipes').findOne({ key });
     if (!recipe) throw httpError(404, `Recipe not found: ${key}`);
+    if (!householdRecipeAllows(user.household || {}, recipe, user.members || [])) {
+      throw httpError(400, 'This recipe does not fit everyone’s saved food preferences or ingredient restrictions');
+    }
   }
 
   const targetDay = plan.days.find((d) => d.date === date);
@@ -99,6 +105,14 @@ router.post('/copy-day', asyncH(async (req, res) => {
   const plan = await getOrCreatePlan(db, user);
   const fromDay = plan.days.find((d) => d.date === from);
   if (!fromDay) throw httpError(404, `No planned day on ${from}`);
+  for (const slot of SLOTS) {
+    const key = fromDay.meals?.[slot]?.key;
+    if (!key) continue;
+    const recipe = await db.col('recipes').findOne({ key });
+    if (recipe && !householdRecipeAllows(user.household || {}, recipe, user.members || [])) {
+      throw httpError(400, `Cannot copy this day: ${recipe.name} does not fit everyone’s saved food preferences`);
+    }
+  }
   const targetDay = plan.days.find((d) => d.date === to);
   if (!targetDay) throw httpError(404, `No planned day on ${to}`);
   if (SLOTS.some((slot) => targetDay.meals && targetDay.meals[slot] && targetDay.meals[slot].done)) throw httpError(409, 'Undo cooked meals before replacing this day');
@@ -144,7 +158,7 @@ router.post('/mark-done', asyncH(async (req, res) => {
   if (!recipe) throw httpError(404, `Recipe not found: ${meal.key}`);
 
   const pantryItems = await db.col('pantries').find({ ownerId: user._id });
-  const factor = Math.max(0.5, (user.household.adults || 1) + (user.household.children || 0) * 0.5);
+  const factor = portionFactor(user.household);
   const { deductions, shortfall } = computeDeductions(recipe, factor, pantryItems);
 
   const pantries = db.col('pantries');

@@ -15,6 +15,7 @@ const PantryItemSchema = new Schema(
     threshold: { type: Number, default: 0 },
     capacity: { type: Number, default: 0 },
     expiryDate: { type: String, default: null }, // ISO yyyy-mm-dd
+    expirySource: { type: String, enum: ['entered', 'scanned', 'estimated', 'recorded'], default: 'recorded' },
     addedBy: { type: String, default: 'owner' }, // activity log / flatmates bonus
     createdAt: { type: String },
     updatedAt: { type: String }

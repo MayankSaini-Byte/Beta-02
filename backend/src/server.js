@@ -30,8 +30,8 @@ async function main() {
     console.log('[static] No frontend build found at', dist, '(API-only mode). Run: npm --prefix ../frontend run build');
   }
 
-  const server = app.listen(env.PORT, () => {
-    console.log(`[server] KitchenSync API listening on http://localhost:${env.PORT}`);
+  const server = app.listen(env.PORT, '0.0.0.0', () => {
+    console.log(`[server] KitchenSync website and API listening on http://0.0.0.0:${env.PORT}`);
   });
 
   server.on('error', (err) => {

@@ -9,7 +9,10 @@ const MemberSchema = new Schema(
     name: { type: String, required: true },
     role: { type: String, enum: ['admin', 'member'], default: 'member' },
     type: { type: String, enum: ['adult', 'child'], default: 'adult' },
-    calorieTarget: { type: Number, default: 2000 }
+    diet: { type: String, enum: ['inherit', 'veg', 'egg', 'nonveg', 'vegan', 'jain', 'custom'], default: 'inherit' },
+    allergies: { type: [String], default: [] },
+    calorieTarget: { type: Number, default: 2000 },
+    proteinTarget: { type: Number, default: 75 }
   },
   { _id: false, minimize: false }
 );
@@ -19,10 +22,27 @@ const UserSchema = new Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
+    accountType: { type: String, enum: ['household', 'commercial', 'service'], default: 'household' },
+    onboardingComplete: { type: Boolean, default: true },
+    businessProfile: {
+      businessType: { type: String, default: '' },
+      outletName: { type: String, default: '' },
+      address: { type: String, default: '' },
+      dailyServings: { type: Number, default: 0 },
+      vendorContact: { type: String, default: '' }
+    },
     household: {
+      kitchenType: { type: String, enum: ['household', 'hostel', 'commercial'], default: 'household' },
+      residents: { type: Number, default: 2 },
       adults: { type: Number, default: 2 },
       children: { type: Number, default: 0 },
-      diet: { type: String, default: 'veg' }, // veg | nonveg | vegan | egg
+      address: { type: String, default: '' },
+      pincode: { type: String, default: '' },
+      diet: { type: String, default: 'veg' }, // veg | egg | nonveg | vegan | jain
+      foodPractice: { type: String, default: 'none' },
+      calorieTarget: { type: Number, default: 2000 },
+      proteinTarget: { type: Number, default: 75 },
+      cuisines: { type: [String], default: [] },
       allergies: { type: [String], default: [] },
       tastes: { type: [String], default: [] },
       weeklyBudget: { type: Number, default: 1500 },

@@ -142,6 +142,32 @@ async function estimateQuantities({ name, ingredients, servings = 2, diet = 'veg
   }
 }
 
+/** Estimate calories and protein for a free-text meal description and portion. */
+async function estimateFoodNutrition({ food, mealType = 'meal' }) {
+  const text = await chat([
+    {
+      role: 'system',
+      content: 'Estimate calories (kcal) and protein (g) for the food and portion described. If no portion is stated, use one typical serving of that dish. Return ONLY JSON: {"calories":number,"protein":number,"serving":"short portion description","confidence":"low|medium|high"}. Give a practical estimate, not false precision. Do not give health advice.'
+    },
+    {
+      role: 'user',
+      content: `Meal type: ${mealType}. Food and portion: ${food}.`
+    }
+  ], 250);
+  const result = extractJson(text);
+  const calories = Number(result && result.calories);
+  const protein = Number(result && result.protein);
+  if (!Number.isFinite(calories) || calories < 0 || calories > 10000 || !Number.isFinite(protein) || protein < 0 || protein > 500) {
+    throw new Error('bad-nutrition-estimate');
+  }
+  return {
+    calories: Math.round(calories),
+    protein: Math.round(protein * 10) / 10,
+    serving: String(result.serving || 'one serving').slice(0, 80),
+    confidence: ['low', 'medium', 'high'].includes(result.confidence) ? result.confidence : 'low'
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* 2) Receipt parsing (OCR text -> grocery items)                      */
 /* ------------------------------------------------------------------ */
@@ -264,4 +290,4 @@ async function visionExpiry(imageBase64) {
   return parsed;
 }
 
-module.exports = { estimateQuantities, parseReceipt, receiptSelfTest, heuristicParseReceipt, visionJson, visionReceipt, visionExpiry };
+module.exports = { estimateQuantities, estimateFoodNutrition, parseReceipt, receiptSelfTest, heuristicParseReceipt, visionJson, visionReceipt, visionExpiry };

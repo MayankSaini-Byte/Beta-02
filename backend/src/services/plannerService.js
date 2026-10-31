@@ -26,9 +26,49 @@ const SLOTS = ['breakfast', 'lunch', 'dinner'];
 const MAX_LINE_COST = 3000; // rupees - anything above this per line is flagged implausible
 
 function dietAllows(userDiet, recipeDiet) {
+  if (userDiet === 'custom') return true;
+  if (userDiet === 'jain') return recipeDiet === 'veg';
+  if (userDiet === 'vegan') return recipeDiet === 'veg';
   if (userDiet === 'nonveg') return true;
   if (userDiet === 'egg') return recipeDiet === 'veg' || recipeDiet === 'egg';
   return recipeDiet === 'veg';
+}
+
+const JAIN_AVOID = new Set(['onion', 'garlic', 'ginger', 'ginger-garlic-paste', 'potato', 'sweet-potato', 'carrot', 'beetroot', 'radish']);
+function cuisineMatch(recipe, preferences) {
+  if (!preferences.length) return false;
+  const cuisine = String(recipe.cuisine || '').toLowerCase();
+  const tags = (recipe.tags || []).map((tag) => String(tag).toLowerCase().replace(/-/g, ' '));
+  return preferences.some((preference) => {
+    const wanted = preference.toLowerCase();
+    return cuisine === wanted || cuisine.includes(wanted) || tags.some((tag) => tag === wanted || tag.includes(wanted));
+  });
+}
+
+function dietRecipeAllows(diet, recipe) {
+  if (!dietAllows(diet, recipe.diet)) return false;
+  if (diet === 'jain') return !(recipe.ingredients || []).some((ingredient) => JAIN_AVOID.has(ingredient.key));
+  if (diet === 'vegan') return !(recipe.ingredients || []).some((ingredient) => ['milk', 'curd', 'paneer', 'butter', 'cheese', 'ghee', 'yogurt'].includes(ingredient.key));
+  return true;
+}
+
+function householdRecipeAllows(household, recipe, members = []) {
+  const memberDiets = household.foodPractice === 'jain'
+    ? ['jain']
+    : members.length
+    ? members.map((member) => member.diet && member.diet !== 'inherit' ? member.diet : household.diet || 'veg')
+    : [household.diet || 'veg'];
+  if (!memberDiets.every((diet) => dietRecipeAllows(diet, recipe))) return false;
+  if (household.foodPractice === 'satvik' && (recipe.ingredients || []).some((ingredient) => ['onion', 'garlic', 'ginger', 'ginger-garlic-paste'].includes(ingredient.key))) return false;
+  if (household.foodPractice === 'halal' && (recipe.ingredients || []).some((ingredient) => ['pork', 'bacon', 'ham', 'lard', 'wine', 'beer', 'alcohol'].includes(ingredient.key))) return false;
+  const restricted = new Set([
+    ...(household.allergies || []),
+    ...members.flatMap((member) => member.allergies || [])
+  ].map((value) => String(value).trim().toLowerCase()).filter(Boolean));
+  return !(recipe.ingredients || []).some((ingredient) => {
+    const catalogName = (byKey.get(ingredient.key) || {}).name || '';
+    return restricted.has(String(ingredient.key).toLowerCase()) || restricted.has(catalogName.toLowerCase());
+  });
 }
 
 /** Reopt-friendly generation. Locked slots from an existing plan are preserved. */
@@ -67,9 +107,9 @@ function generateWeek({ user, pantryItems, recipes, startISO, days = 7, existing
       const lockedKey = locked.get(date) && locked.get(date)[slot];
       if (lockedKey) {
         const r = recipes.find((x) => x.key === lockedKey);
-        if (r) {
+        const previous = existingPlan.days.find((d) => d.date === date)?.meals?.[slot];
+        if (r && (previous?.done || householdRecipeAllows(hh, r, user.members || []))) {
           usedCount.set(r.key, (usedCount.get(r.key) || 0) + 1);
-          const previous = existingPlan.days.find((d) => d.date === date)?.meals?.[slot];
           meals[slot] = previous && previous.done
             ? { ...previous, key: r.key, locked: !!previous.locked }
             : { key: r.key, locked: true, done: false };
@@ -82,7 +122,9 @@ function generateWeek({ user, pantryItems, recipes, startISO, days = 7, existing
           continue;
         }
       }
-      const candidates = recipes.filter((r) => (r.meal || []).includes(slot) && dietAllows(hh.diet || 'veg', r.diet));
+      const dietCandidates = recipes.filter((r) => (r.meal || []).includes(slot) && householdRecipeAllows(hh, r, user.members || []));
+      const regionalCandidates = hh.cuisines?.length ? dietCandidates.filter((r) => cuisineMatch(r, hh.cuisines)) : [];
+      const candidates = regionalCandidates.length ? regionalCandidates : dietCandidates;
       let best = null;
       let bestScore = -1;
       for (const r of candidates) {
@@ -93,6 +135,7 @@ function generateWeek({ user, pantryItems, recipes, startISO, days = 7, existing
         const score =
           2.0 * (check.coverage / 100) +
           0.8 * tasteMatch +
+          (regionalCandidates.length && cuisineMatch(r, hh.cuisines) ? 0.65 : 0) +
           1.1 * urgency +
           0.7 * variety +
           0.3 * (r.rating / 5) +
@@ -259,7 +302,7 @@ function decoratePlan(plan, user, pantryItems, recipes) {
         if (!m || m.locked || m.done) continue;
         const recipe = recipeByKey.get(m.key);
         if (!recipe) continue;
-        const candidates = recipes.filter((r) => (r.meal || []).includes(slot) && dietAllows(hh.diet || 'veg', r.diet) && r.key !== m.key);
+        const candidates = recipes.filter((r) => (r.meal || []).includes(slot) && householdRecipeAllows(hh, r, user.members || []) && r.key !== m.key);
         let bestAlt = null;
         for (const alt of candidates) {
           const altCheck = checkIngredients(alt.ingredients, initial, factor);
@@ -350,4 +393,4 @@ function computeDeductions(recipe, factor, pantryItems) {
   return { deductions, shortfall };
 }
 
-module.exports = { generateWeek, decoratePlan, computeDeductions, sanityLine, SLOTS, MAX_LINE_COST };
+module.exports = { generateWeek, decoratePlan, computeDeductions, sanityLine, householdRecipeAllows, SLOTS, MAX_LINE_COST };

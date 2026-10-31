@@ -205,7 +205,7 @@ export default function Devices() {
     try {
       await api.post('/devices', { name: newName.trim() });
       setNewName('');
-      toast('Container paired - it now streams simulated readings', 'ok', 'Device added');
+      toast('Storage point added with demo readings', 'ok', 'Storage added');
       load();
     } catch (e) { toast(e.response?.data?.error || 'Could not pair', 'err'); }
   };
@@ -213,7 +213,7 @@ export default function Devices() {
   const link = async (deviceId, pantryItemId) => {
     try {
       await api.post(`/devices/${deviceId}/link`, { pantryItemId });
-      toast('Sensor linked - dashboard stock now tracks this container', 'ok');
+      toast('Sensor linked - stock now tracks this storage point', 'ok');
       setLinkFor(null);
       load();
     } catch (e) { toast(e.response?.data?.error || 'Link failed', 'err'); }
@@ -234,7 +234,7 @@ export default function Devices() {
       <WeighStation pantryItems={pantryItems} toast={toast} />
 
       <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '3px solid var(--plum)' }}>
-        <div className="small muted"><b style={{ color: 'var(--text)' }}>Hardware note.</b> The API surface here is real (<code>/api/devices/*</code> + <code>/api/scale/*</code> - what an ESP32 load-cell calls), but the smart-container readings in this demo are <b>simulated</b> deterministically. "Simulate sensor" (above and per card) is our venue-Wi-Fi fallback for live demos. Wiring + firmware: <code>hardware/</code>.</div>
+        <div className="small muted"><b style={{ color: 'var(--text)' }}>Storage and weighing.</b> Link a storage point to an inventory item, then record weights here. Sensor readings are simulated in this demo.</div>
       </div>
 
       {data.conflicts.length > 0 && (
@@ -260,8 +260,8 @@ export default function Devices() {
       )}
 
       <div className="flex wrap mb-2" style={{ gap: 8 }}>
-        <input className="input" style={{ maxWidth: 240 }} placeholder="New container name (e.g. Dal Jar)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} />
-        <button className="btn btn-primary" onClick={createDevice}><Icon name="chip" /> Pair container</button>
+        <input className="input" style={{ maxWidth: 240 }} placeholder="Storage point (e.g. Rice bin)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} />
+        <button className="btn btn-primary" onClick={createDevice}><Icon name="chip" /> Add storage point</button>
       </div>
 
       <div className="device-grid stagger">
@@ -307,7 +307,6 @@ export default function Devices() {
               <button className="btn btn-sm" onClick={() => simulate(d.id, 'refill')} disabled={busy === d.id + 'refill'}>Refill</button>
               <button className="btn btn-sm" onClick={() => tare(d.id)} disabled={busy === d.id + 'tare'}><Icon name="scale" size={12} /> Tare</button>
               <button className="btn btn-sm" onClick={() => showHistory(d.id, d.name)} disabled={busy === d.id + 'hist'}><Icon name="analytics" size={12} /> Chart</button>
-              <button className="btn btn-sm" onClick={() => simulate(d.id, 'nonsense')} disabled={busy === d.id + 'nonsense'} title="Test the nonsense-value guard">Send junk</button>
             </div>
           </div>
         ))}
