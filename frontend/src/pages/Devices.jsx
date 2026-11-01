@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -40,19 +40,32 @@ function TelemetryChart({ title, data, dataKey, unit, color }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Load-cell weighing station (real hardware: ESP32 + HX711)            */
-/* The server keeps the latest reading POSTed by the ESP32; the browser */
+/* Load-cell weighing station (ESP8266/ESP32 + HX711)                    */
+/* The server keeps the latest physical reading; the browser            */
 /* only reads it, so the value applied to stock can't be faked or stale. */
 /* ------------------------------------------------------------------ */
 function WeighStation({ pantryItems, devices, toast }) {
   const [live, setLive] = useState(null);        // {grams, stable, online, ts}
-  const [sensorId, setSensorId] = useState('scale1');
+  const firstPhysical = devices.find((device) => device.source === 'physical' && device.hardwareId);
+  const [sensorId, setSensorId] = useState(() => firstPhysical?.hardwareId || 'scale1');
+  const autoSelectedPhysical = useRef(Boolean(firstPhysical));
   const [itemId, setItemId] = useState('');
   const [mode, setMode] = useState('set');       // set | add
   const [containerWeight, setContainerWeight] = useState('');
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
   const [reweigh, setReweigh] = useState(null);
+
+  // If a sensor is paired after this page mounts, select it automatically so
+  // its readings do not remain hidden behind the legacy simulator by default.
+  useEffect(() => {
+    if (autoSelectedPhysical.current) return;
+    const physical = devices.find((device) => device.source === 'physical' && device.hardwareId);
+    if (!physical) return;
+    autoSelectedPhysical.current = true;
+    setSensorId(physical.hardwareId);
+    setContainerWeight(String(physical.tareGrams || 0));
+  }, [devices]);
 
   useEffect(() => {
     let stop = false;
@@ -169,7 +182,7 @@ function WeighStation({ pantryItems, devices, toast }) {
             <button className="btn" onClick={simulate} disabled={busy === 'sim' || sensorId !== 'scale1' || live?.source === 'physical'} title="Demo fallback when no physical sensor is selected">
               <Icon name="refresh" size={13} /> Simulate sensor
             </button>
-            {!live?.online && <span className="tiny muted" style={{ alignSelf: 'center' }}>Waiting for the physical sensor - press Simulate sensor for the demo.</span>}
+            {!live?.online && <span className="tiny muted" style={{ alignSelf: 'center' }}>Waiting for the physical sensor — confirm it is paired and sending to this server.</span>}
           </div>
           {result && (
             <div className="small mt-1" style={{ color: 'var(--accent)' }}>
@@ -205,6 +218,7 @@ export default function Devices() {
   const [pantryItems, setPantryItems] = useState([]);
   const [newName, setNewName] = useState('');
   const [newHardwareId, setNewHardwareId] = useState('');
+  const [pairError, setPairError] = useState('');
 
   const load = async () => {
     const { data } = await api.get('/devices');
@@ -250,14 +264,25 @@ export default function Devices() {
   };
 
   const createDevice = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim()) {
+      setPairError('Enter a storage point name first.');
+      return;
+    }
+    setBusy('pair');
+    setPairError('');
     try {
       const { data } = await api.post('/devices', { name: newName.trim(), hardwareId: newHardwareId.trim() || undefined });
       setNewName('');
       setNewHardwareId('');
-      toast(data.source === 'physical' ? 'Paired. Set the same Device ID in the ESP32 firmware.' : 'Storage point added with simulator readings.', 'ok', 'Storage added');
+      toast(data.alreadyPaired ? 'This sensor is already paired to your account.' : data.source === 'physical' ? 'Paired. Use the same Device ID in the sensor firmware.' : 'Storage point added with simulator readings.', 'ok', data.alreadyPaired ? 'Already paired' : 'Storage added');
       await load();
-    } catch (e) { toast(e.response?.data?.error || 'Could not pair', 'err'); }
+    } catch (e) {
+      const message = e.response?.data?.error || 'Could not add this storage point. Check the connection and try again.';
+      setPairError(message);
+      toast(message, 'err', 'Storage point not added');
+    } finally {
+      setBusy('');
+    }
   };
 
   const link = async (deviceId, pantryItemId) => {
@@ -284,7 +309,7 @@ export default function Devices() {
       <WeighStation pantryItems={pantryItems} devices={data.devices} toast={toast} />
 
       <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '3px solid var(--plum)' }}>
-        <div className="small muted"><b style={{ color: 'var(--text)' }}>Live storage monitoring.</b> Pair a physical ESP32 by its Device ID, or leave the ID blank to use the simulator. Readings never change stock until you choose a weighing action.</div>
+        <div className="small muted"><b style={{ color: 'var(--text)' }}>Live storage monitoring.</b> Pair an ESP8266/ESP32 by its Device ID, or leave the ID blank to use the simulator. Readings never change stock until you choose a weighing action.</div>
       </div>
 
       {data.conflicts.length > 0 && (
@@ -310,9 +335,10 @@ export default function Devices() {
       )}
 
       <div className="device-pair-form card mb-2">
-        <label className="field"><span className="label">Storage point name</span><input className="input" placeholder="e.g. Rice container" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
-        <label className="field"><span className="label">Physical Device ID <em>Optional · leave blank for simulator</em></span><input className="input" placeholder="Must match DEVICE_ID in firmware" value={newHardwareId} onChange={(e) => setNewHardwareId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
-        <button className="btn btn-primary" onClick={createDevice}><Icon name="chip" /> Add storage point</button>
+        <label className="field"><span className="label">Storage point name</span><input className="input" placeholder="e.g. Rice container" value={newName} onChange={(e) => { setNewName(e.target.value); setPairError(''); }} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
+        <label className="field"><span className="label">Physical Device ID <em>Optional · leave blank for simulator</em></span><input className="input" placeholder="Must match DEVICE_ID in firmware" value={newHardwareId} onChange={(e) => { setNewHardwareId(e.target.value); setPairError(''); }} onKeyDown={(e) => e.key === 'Enter' && createDevice()} /></label>
+        <button className="btn btn-primary" onClick={createDevice} disabled={busy === 'pair'}><Icon name="chip" /> {busy === 'pair' ? 'Adding…' : 'Add storage point'}</button>
+        {pairError && <div className="small" role="alert" style={{ gridColumn: '1 / -1', color: 'var(--danger, #a8332a)' }}>{pairError}</div>}
       </div>
 
       <div className="device-grid stagger">
@@ -376,7 +402,7 @@ export default function Devices() {
       {history && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card mt-3" style={{ padding: 16 }}>
           <div className="section-head" style={{ marginBottom: 8 }}>
-            <div><h2 style={{ fontSize: 16 }}>Sensor history · {history.name}</h2><div className="small muted">{history.source === 'physical' ? 'Recorded ESP32 readings' : 'Simulator weight history; environmental readings are unavailable'}</div></div>
+            <div><h2 style={{ fontSize: 16 }}>Sensor history · {history.name}</h2><div className="small muted">{history.source === 'physical' ? 'Recorded physical sensor readings' : 'Simulator weight history; environmental readings are unavailable'}</div></div>
             <button className="btn btn-ghost btn-icon" onClick={() => setHistory(null)}><Icon name="x" /></button>
           </div>
           <div className="device-telemetry-history-grid">

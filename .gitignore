@@ -25,4 +25,4 @@ model-service/.paddlex/
 model-service/.venv/
 db/kitchensync-store.json
 # local runtime data
-hardware/esp32_scale/secrets.h
+hardware/**/secrets.h

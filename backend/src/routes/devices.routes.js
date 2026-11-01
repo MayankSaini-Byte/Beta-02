@@ -98,7 +98,15 @@ router.post('/', asyncH(async (req, res) => {
   if (!String(b.name || '').trim()) throw httpError(400, 'Device name is required');
   const hardwareId = String(b.hardwareId || '').trim();
   if (hardwareId && !/^[A-Za-z0-9._:-]{1,80}$/.test(hardwareId)) throw httpError(400, 'Device ID must contain 1–80 letters, numbers, dots, underscores, colons, or hyphens');
-  if (hardwareId && await req.db.col('devices').findOne({ hardwareId })) throw httpError(409, 'That Device ID is already paired');
+  if (hardwareId) {
+    const existing = await req.db.col('devices').findOne({ hardwareId });
+    if (existing) {
+      if (existing.ownerId === req.userId) {
+        return res.json({ device: existing, source: existing.source, alreadyPaired: true });
+      }
+      throw httpError(409, 'This Device ID is already paired to another account. Sign into the account that paired it to view its readings.');
+    }
+  }
   let linkedKey = null;
   if (b.pantryItemId) {
     const item = await req.db.col('pantries').findOne({ _id: b.pantryItemId, ownerId: req.userId });
@@ -114,7 +122,7 @@ router.post('/', asyncH(async (req, res) => {
     pantryItemId: b.pantryItemId || null,
     linkedKey,
     battery: 85 + Math.round(hash(b.name) * 14),
-    wifi: hardwareId ? 'Waiting for ESP32' : 'home-wifi',
+    wifi: hardwareId ? 'Waiting for sensor' : 'home-wifi',
     tareGrams: 0,
     lastSeen: hardwareId ? null : new Date().toISOString(),
     createdAt: new Date().toISOString()
@@ -126,7 +134,7 @@ router.post('/', asyncH(async (req, res) => {
     await req.db.col('devicereadings').insertOne({ ownerId: req.userId, deviceId: dev._id, grams: initialGrams, stable: true, source: 'simulator', at: initialAt });
     await req.db.col('devices').updateOne({ _id: dev._id }, { latestGrams: initialGrams, latestStable: true, lastReadingAt: initialAt });
   }
-  await logActivity(req.db, req.userId, { action: 'added', target: dev.name, detail: hardwareId ? `Paired physical ESP32 sensor ${hardwareId}` : 'Added a simulated smart container sensor', icon: 'chip' });
+  await logActivity(req.db, req.userId, { action: 'added', target: dev.name, detail: hardwareId ? `Paired physical sensor ${hardwareId}` : 'Added a simulated smart container sensor', icon: 'chip' });
   res.status(201).json({ device: dev, source: dev.source });
 }));
 

@@ -4,6 +4,16 @@ The Devices page accepts readings from a physical ESP32 + HX711 load cell + DHT2
 
 Firmware: [`esp32_scale/esp32_scale.ino`](esp32_scale/esp32_scale.ino).
 
+For an **ESP8266 NodeMCU (ESP-12E)** with HX711 and a 5 kg load cell, use [`esp8266_scale/esp8266_scale.ino`](esp8266_scale/esp8266_scale.ino). This variant sends weight and stability only; the ESP8266 setup described here does not include DHT22 readings.
+
+## ESP8266 NodeMCU setup
+
+- HX711 DOUT/DT → GPIO12 (D6); SCK/CLK → GPIO14 (D5); VCC → 3V3; GND → GND.
+- Install the **ESP8266** board package and **HX711** by bogde in Arduino IDE. Select **NodeMCU 1.0 (ESP-12E Module)**.
+- Copy `esp8266_scale/secrets.example.h` to `esp8266_scale/secrets.h`; fill in the hotspot name/password, laptop IPv4, and the matching KitchenSync device key and ID. `secrets.h` is ignored by Git.
+- Open the matching `esp8266_scale.ino` sketch folder, upload, then open Serial Monitor at **115200 baud**. `204` means the API accepted a reading; `401` means the backend has not loaded the matching key or the firmware key differs.
+- Calibrate `CALIBRATION_FACTOR` using a known weight before relying on measurements. Keep the platform unloaded during startup tare.
+
 ## Parts and wiring
 
 - ESP32 DevKit V1

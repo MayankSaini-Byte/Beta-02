@@ -9,7 +9,7 @@
  *
  * Pair a physical device in KitchenSync's Devices page and set DEVICE_ID to
  * the same Physical Device ID. Configure Wi-Fi, laptop LAN IP and DEVICE_KEY
- * below before uploading. Never commit real credentials to the repository.
+ * in secrets.h before uploading. Never commit real credentials to the repository.
  */
 
 #include <WiFi.h>
