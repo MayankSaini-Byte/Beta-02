@@ -32,7 +32,7 @@ function sanitize(user) {
   const accountType = ['household', 'commercial', 'service'].includes(rest.accountType)
     ? rest.accountType
     : rest.household?.kitchenType === 'commercial' ? 'commercial' : rest.household?.kitchenType === 'hostel' ? 'service' : 'household';
-  return { ...rest, accountType, onboardingComplete: rest.onboardingComplete !== false };
+  return { ...rest, role: rest.role === 'member' ? 'member' : 'admin', accountType, onboardingComplete: rest.onboardingComplete !== false };
 }
 
 function sign(user) {
@@ -46,6 +46,7 @@ router.post('/demo', asyncH(async (req, res) => {
   if (!user) {
     user = await users.insertOne({
       name: 'Demo Family',
+      role: 'admin',
       email: 'demo@kitchensync.app',
       passwordHash: bcrypt.hashSync('demo1234', 10),
       accountType: 'household',
@@ -78,6 +79,7 @@ router.post('/register', asyncH(async (req, res) => {
 
   const user = await users.insertOne({
     name: cleanName,
+    role: 'admin',
     username,
     // Keep the legacy unique account key internally; the UI never asks for or exposes it.
     email: storedEmail,

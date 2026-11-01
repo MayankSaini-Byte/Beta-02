@@ -3,6 +3,10 @@
  * Run: node scripts/v2-test.js  (against a server on :5055)
  */
 const BASE = process.env.BASE || 'http://localhost:5055/api';
+const DEVICE_KEY = process.env.DEVICE_KEY || 'secret-device-key';
+const mongoose = require('mongoose');
+const { DeviceReadingSchema } = require('../src/models/DeviceReading');
+const DeviceReadingModel = mongoose.models.ScaleReadingSchemaTest || mongoose.model('ScaleReadingSchemaTest', DeviceReadingSchema);
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
   if (cond) { pass++; console.log(`PASS: ${name}`); }
@@ -141,21 +145,69 @@ async function raw(method, path, body, headers = {}) {
   const { data: handoff } = await req('POST', '/shopping/handoff', { providerId: 'blinkit', items: [{ name: 'Tomato', qty: 1000, unit: 'g' }] }, T);
   ok('handoff deep links', handoff.items.length === 1 && String(handoff.items[0].url).includes('blinkit.com'));
 
-  // 7b) weighing station: reading -> guards -> weigh -> reweigh
+  // 7b) weighing station: authenticated weight/environment readings -> tare -> confirmed weigh
   // Scale and storage routes are intentionally limited to commercial/service workspaces.
   const { data: commercialProfile } = await req('PUT', '/auth/me', { accountType: 'commercial' }, T);
   ok('device tools require a commercial workspace', commercialProfile.user.accountType === 'commercial');
-  const bad = await raw('POST', '/scale/reading', { device_id: 'scale1', grams: -999, stable: true }, { 'x-device-key': 'wrong' });
-  ok('scale bad key -> 401', bad.status === 401);
-  const junk = await raw('POST', '/scale/reading', { device_id: 'scale1', grams: -999, stable: true }, { 'x-device-key': 'secret-device-key' });
-  ok('scale nonsense -> 422', junk.status === 422);
-  await raw('POST', '/scale/reading', { device_id: 'scale1', grams: 1240, stable: true }, { 'x-device-key': 'secret-device-key' });
-  const latest = await req('GET', '/scale/latest', null, T);
-  ok('scale latest online+stable', latest.data.online === true && latest.data.stable === true, JSON.stringify(latest.data).slice(0, 80));
+  const legacyMongooseReading = new DeviceReadingModel({ ownerId: 'test-owner', deviceId: 'test-device', grams: 10, at: new Date().toISOString() });
+  ok('mongoose schema accepts older readings without environment', legacyMongooseReading.validateSync() === undefined);
+  const dhtMongooseReading = new DeviceReadingModel({ ownerId: 'test-owner', deviceId: 'test-device', grams: 10, temperatureC: 27.5, humidityPercent: 61.2, at: new Date().toISOString() });
+  ok('mongoose schema accepts DHT22 fields', dhtMongooseReading.validateSync() === undefined);
   const { data: pantryNow } = await req('GET', '/pantry', null, T);
   const weighItem = (pantryNow.items.find((p) => p.unit === 'g') || pantryNow.items[0]);
-  const { data: weighed } = await req('POST', `/scale/stock/${weighItem._id}/weigh`, { mode: 'set', containerWeight: 40 }, T);
-  ok('weigh set applies net', weighed.applied && weighed.applied.netGrams === 1200, JSON.stringify(weighed).slice(0, 100));
+  const originalQuantity = weighItem.quantity;
+  const hardwareId = `test-scale-${Date.now()}`;
+  const { data: paired } = await req('POST', '/devices', { name: 'API test scale', hardwareId }, T);
+  const physical = paired.device;
+  ok('physical scale paired', !!physical && physical.hardwareId === hardwareId && physical.source === 'physical');
+  const missingKey = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 123.4, stable: true });
+  ok('scale missing key -> 401', missingKey.status === 401);
+  const badKey = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 123.4, stable: true }, { 'x-device-key': 'wrong-device-key' });
+  ok('scale incorrect key -> 401', badKey.status === 401);
+  const unpaired = await raw('POST', '/scale/reading', { device_id: 'not-paired-scale', grams: 123.4, stable: true }, { 'x-device-key': DEVICE_KEY });
+  ok('scale unknown physical id -> 400', unpaired.status === 400);
+  const invalidTemperature = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 123.4, stable: true, temperature_c: 80.1 }, { 'x-device-key': DEVICE_KEY });
+  ok('scale rejects invalid temperature -> 400', invalidTemperature.status === 400);
+  const invalidHumidity = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 123.4, stable: true, humidity_percent: 100.1 }, { 'x-device-key': DEVICE_KEY });
+  ok('scale rejects invalid humidity -> 400', invalidHumidity.status === 400);
+  const invalidWeight = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: -0.1, stable: true }, { 'x-device-key': DEVICE_KEY });
+  ok('scale rejects negative grams -> 400', invalidWeight.status === 400);
+  const missingStable = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 123.4 }, { 'x-device-key': DEVICE_KEY });
+  ok('scale requires boolean stable -> 400', missingStable.status === 400);
+
+  // Both the old weight-only body and the extended DHT22 body remain accepted.
+  let sensorTs = Date.now();
+  const nextSensorTimestamp = () => { sensorTs = Math.max(sensorTs + 2, Date.now()); return sensorTs; };
+  const weightOnly = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 100, stable: true, timestamp_ms: nextSensorTimestamp(), reading_id: 'weight-only' }, { 'x-device-key': DEVICE_KEY });
+  ok('scale accepts weight-only payload -> 204', weightOnly.status === 204);
+  const legacyWeightOnly = await raw('POST', '/scale/reading', { device_id: 'scale1', grams: 1240, stable: true, timestamp_ms: nextSensorTimestamp(), reading_id: 'legacy-weight-only' }, { 'x-device-key': DEVICE_KEY });
+  ok('scale1 legacy weight-only compatibility -> 204', legacyWeightOnly.status === 204);
+  const environmental = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 140, stable: true, temperature_c: 27.5, humidity_percent: 61.2, timestamp_ms: nextSensorTimestamp(), reading_id: 'weight-with-dht22' }, { 'x-device-key': DEVICE_KEY });
+  ok('scale accepts weight + DHT22 payload -> 204', environmental.status === 204);
+  const latest = await req('GET', `/scale/latest?device_id=${encodeURIComponent(hardwareId)}`, null, T);
+  ok('scale latest exposes weight and environment', latest.data.online === true && latest.data.stable === true && latest.data.grams === 140 && latest.data.temperatureC === 27.5 && latest.data.humidityPercent === 61.2, JSON.stringify(latest.data).slice(0, 140));
+  const { data: afterReading } = await req('GET', '/pantry', null, T);
+  const unchangedQuantity = afterReading.items.find((p) => p._id === weighItem._id)?.quantity;
+  ok('sensor readings do not auto-update pantry', unchangedQuantity === originalQuantity, `${originalQuantity} -> ${unchangedQuantity}`);
+  const { data: pairedDevices } = await req('GET', '/devices', null, T);
+  const pairedView = pairedDevices.devices.find((device) => device.id === physical._id);
+  ok('device API exposes latest environment', pairedView?.temperatureC === 27.5 && pairedView?.humidityPercent === 61.2 && pairedView?.source === 'physical');
+  const { data: pairedHistory } = await req('GET', `/devices/${physical._id}/history`, null, T);
+  const lastPhysicalReading = pairedHistory.series[pairedHistory.series.length - 1];
+  ok('device history stores environment with weight', lastPhysicalReading?.grams === 140 && lastPhysicalReading?.temperatureC === 27.5 && lastPhysicalReading?.humidityPercent === 61.2);
+
+  const unstable = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 150, stable: false, timestamp_ms: nextSensorTimestamp(), reading_id: 'settling-reading' }, { 'x-device-key': DEVICE_KEY });
+  ok('unstable weight is accepted but not applicable', unstable.status === 204);
+  const unstableWeigh = await req('POST', `/scale/stock/${weighItem._id}/weigh`, { mode: 'add', deviceId: hardwareId }, T);
+  ok('stock application requires stable reading -> 409', unstableWeigh.status === 409);
+  const tareReading = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 140, stable: true, temperature_c: 27.5, humidity_percent: 61.2, timestamp_ms: nextSensorTimestamp(), reading_id: 'tare-reading' }, { 'x-device-key': DEVICE_KEY });
+  ok('stable reading accepted for tare -> 204', tareReading.status === 204);
+  const { data: tareResult } = await req('POST', `/devices/${physical._id}/tare`, {}, T);
+  ok('physical sensor tare succeeds after stable reading', tareResult.ok === true && tareResult.device.tareGrams === 140);
+  const afterTareReading = await raw('POST', '/scale/reading', { device_id: hardwareId, grams: 190, stable: true, temperature_c: 27.6, humidity_percent: 61, timestamp_ms: nextSensorTimestamp(), reading_id: 'post-tare-reading' }, { 'x-device-key': DEVICE_KEY });
+  ok('post-tare stable reading accepted -> 204', afterTareReading.status === 204);
+  const { data: weighed } = await req('POST', `/scale/stock/${weighItem._id}/weigh`, { mode: 'add', deviceId: hardwareId }, T);
+  ok('confirmed weigh applies net after tare', weighed.applied && weighed.applied.netGrams === 50 && weighed.item.quantity === originalQuantity + 50, JSON.stringify(weighed).slice(0, 120));
   const rw = await req('GET', `/scale/reweigh/${weighItem._id}`, null, T);
   ok('reweigh diff', rw.data && typeof rw.data.diffGrams === 'number');
   const { data: simw } = await req('POST', '/scale/simulate', { itemId: weighItem._id }, T);
@@ -163,9 +215,9 @@ async function raw(method, path, body, headers = {}) {
 
   // 8) IoT devices
   const { data: devs } = await req('GET', '/devices', null, T);
-  ok('devices listed with status', devs.devices.length === 3 && devs.devices.every((d) => d.status));
+  ok('devices listed with status', devs.devices.length >= 4 && devs.devices.every((d) => d.status));
   ok('conflict detected', devs.conflicts.length >= 1, `conflicts=${devs.conflicts.length}`);
-  const d0 = devs.devices.find((d) => d.status !== 'stale') || devs.devices[0];
+  const d0 = devs.devices.find((d) => d.source !== 'physical' && d.status !== 'stale') || devs.devices.find((d) => d.source !== 'physical') || devs.devices[0];
   const { data: hist } = await req('GET', `/devices/${d0.id}/history`, null, T);
   ok('device history series', hist.series.length >= 8);
   const { data: nonsense } = await req('POST', `/devices/${d0.id}/simulate`, { mode: 'nonsense' }, T);

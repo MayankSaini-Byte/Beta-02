@@ -45,10 +45,8 @@ async function saveLatest(db, deviceId, patch) {
 
 function optionalReading(value, min, max, name) {
   if (value === undefined || value === null) return null;
-  if (typeof value === 'string' && !value.trim()) throw httpError(422, `${name} must be a number`);
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < min || number > max) throw httpError(422, `${name} must be between ${min} and ${max}`);
-  return Math.round(number * 10) / 10;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw httpError(400, `${name} must be a finite number between ${min} and ${max}`);
+  return Math.round(value * 10) / 10;
 }
 
 function readingTimestamp(body, now) {
@@ -57,8 +55,8 @@ function readingTimestamp(body, now) {
   const timestamp = typeof raw === 'number' || /^\d{10,13}$/.test(String(raw).trim())
     ? Number(raw)
     : Date.parse(raw);
-  if (!Number.isFinite(timestamp)) throw httpError(422, 'Invalid reading timestamp');
-  if (timestamp > now + 30_000 || now - timestamp > 30_000) throw httpError(422, 'Reading timestamp is stale or in the future');
+  if (!Number.isFinite(timestamp)) throw httpError(400, 'Invalid reading timestamp');
+  if (timestamp > now + 30_000 || now - timestamp > 30_000) throw httpError(400, 'Reading timestamp is stale or in the future');
   return timestamp;
 }
 
@@ -71,18 +69,18 @@ router.post('/reading', asyncH(async (req, res) => {
   if (!key || key !== env.DEVICE_KEY) return res.status(401).json({ error: 'Invalid device key' });
 
   const b = req.body || {};
-  const deviceId = String(b.device_id || b.deviceId || 'scale1');
-  if (!/^[A-Za-z0-9._:-]{1,80}$/.test(deviceId)) throw httpError(422, 'device_id must contain 1–80 letters, numbers, dots, underscores, colons, or hyphens');
-  if (b.grams === undefined || b.grams === null || (typeof b.grams === 'string' && !b.grams.trim())) throw httpError(422, 'grams is required');
-  const grams = Number(b.grams);
-  if (!Number.isFinite(grams) || !iot.isPlausible(grams)) {
+  const rawDeviceId = b.device_id ?? b.deviceId;
+  const deviceId = typeof rawDeviceId === 'string' ? rawDeviceId.trim() : '';
+  if (!/^[A-Za-z0-9._:-]{1,80}$/.test(deviceId)) throw httpError(400, 'device_id must contain 1–80 letters, numbers, dots, underscores, colons, or hyphens');
+  if (b.grams === undefined || b.grams === null) throw httpError(400, 'grams is required');
+  const grams = b.grams;
+  if (!Number.isFinite(grams) || grams < 0 || !iot.isPlausible(grams)) {
     const existing = await req.db.col('scalestate').findOne({ _id: deviceId });
     if (existing) await saveLatest(req.db, deviceId, { rejected: (existing.rejected || 0) + 1 });
-    return res.status(422).json({ error: 'Implausible reading rejected' });
+    return res.status(400).json({ error: 'grams must be a finite non-negative value below 50000' });
   }
-  const stableValue = b.stable ?? b.isStable;
-  if (stableValue !== undefined && typeof stableValue !== 'boolean') throw httpError(422, 'stable must be a boolean');
-  const stable = stableValue === true;
+  if (typeof b.stable !== 'boolean') throw httpError(400, 'stable must be a boolean');
+  const stable = b.stable;
   const temperatureC = optionalReading(b.temperature_c ?? b.temperatureC, -40, 80, 'temperature_c');
   const humidityPercent = optionalReading(b.humidity_percent ?? b.humidityPercent, 0, 100, 'humidity_percent');
   const now = Date.now();
@@ -92,8 +90,8 @@ router.post('/reading', asyncH(async (req, res) => {
 
   let device = await req.db.col('devices').findOne({ hardwareId: deviceId });
   if (!device) device = await req.db.col('devices').findOne({ _id: deviceId });
-  // Keep the legacy unpaired scale1 endpoint working; all other sensor IDs must be paired.
-  if (!device && deviceId !== 'scale1') throw httpError(404, 'Unknown device_id. Pair this sensor from the Devices page first.');
+  // `scale1` remains the legacy virtual station; all physical device IDs must be paired.
+  if (!device && deviceId !== 'scale1') throw httpError(400, 'Unknown device_id. Pair this sensor from the Devices page first.');
 
   const deviceReadings = req.db.col('devicereadings');
   const readingDeviceId = device ? device._id : deviceId;
@@ -184,7 +182,7 @@ router.post('/stock/:id/weigh', auth, requireAccountType('commercial', 'service'
 
   const s = await getLatest(db, deviceId);
   const readingAge = Date.now() - Number(s.ts || 0);
-  if (!s.ts || readingAge < -5000 || readingAge > FRESH_MS) throw httpError(409, 'Scale offline - no fresh reading. Check the ESP32 (or press Simulate sensor).');
+  if (!s.ts || readingAge < -5000 || readingAge > FRESH_MS) throw httpError(409, 'Scale offline - no fresh reading. Check the sensor (or press Simulate sensor).');
   if (!s.stable) throw httpError(409, 'Weight not stable yet - wait for the Stable ✅ badge.');
 
   const item = await db.col('pantries').findOne({ _id: req.params.id, ownerId: req.userId });

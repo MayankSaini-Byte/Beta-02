@@ -14,6 +14,11 @@ function timeAgo(iso) {
   return `${Math.round(s / 3600)}h ago`;
 }
 
+function readingTimestamp(iso) {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return 'Not available';
+  return `${new Date(iso).toLocaleString()} · ${timeAgo(iso)}`;
+}
+
 function TelemetryChart({ title, data, dataKey, unit, color }) {
   const points = data.filter((row) => row[dataKey] !== null && row[dataKey] !== undefined && Number.isFinite(Number(row[dataKey])));
   return (
@@ -95,7 +100,7 @@ function WeighStation({ pantryItems, devices, toast }) {
     <div className="card" style={{ padding: 16, marginBottom: 14, borderColor: 'var(--accent-deep)' }}>
       <div className="section-head" style={{ marginBottom: 8 }}>
         <div>
-          <h2 style={{ fontSize: 16 }}>Load-cell weighing station <span className={`chip ${live?.source === 'physical' ? 'chip-ok' : 'chip-warn'}`} style={{ marginLeft: 6 }}>{live?.source === 'physical' ? 'physical ESP32' : 'simulator'}</span></h2>
+          <h2 style={{ fontSize: 16 }}>Load-cell weighing station <span className={`chip ${live?.source === 'physical' ? 'chip-ok' : 'chip-warn'}`} style={{ marginLeft: 6 }}>{live?.source === 'physical' ? 'physical sensor' : 'simulator'}</span></h2>
           <div className="sub">Authenticated readings arrive through <code>/api/scale/reading</code>. The server applies its latest fresh, stable reading; the browser cannot submit a weight value.</div>
         </div>
         <span className={`status-pill status-${live && live.online ? 'online' : 'stale'}`}>
@@ -117,7 +122,7 @@ function WeighStation({ pantryItems, devices, toast }) {
               {pairedSensors.map((device) => <option key={device.id} value={device.hardwareId}>{device.name} · {device.hardwareId}</option>)}
             </select>
           </label>
-          <div className="tiny muted mt-2">Live gross weight</div>
+          <div className="tiny muted mt-2">Weight (g) · gross</div>
           <div className="weight-now">{live && live.grams != null ? `${live.grams} g` : '—'}</div>
           {live?.grams != null && <div className="tiny muted">Net after saved tare: {live.netGrams} g · {(Number(live.netGrams || 0) / 1000).toFixed(2)} kg</div>}
           <div className={`chip ${live && live.stable ? 'chip-ok' : 'chip-warn'}`}>
@@ -127,10 +132,10 @@ function WeighStation({ pantryItems, devices, toast }) {
             {live ? `${live.readings || 0} readings accepted · ${live.rejected || 0} rejected` : 'waiting for the first reading…'}
           </div>
           <div className="sensor-current-environment">
-            <span><b>{live?.temperatureC == null ? '—' : `${live.temperatureC}°C`}</b><small>Temperature</small></span>
-            <span><b>{live?.humidityPercent == null ? '—' : `${live.humidityPercent}%`}</b><small>Humidity</small></span>
+            <span><b>{live?.source !== 'physical' || live?.temperatureC == null ? 'Not available' : `${live.temperatureC}°C`}</b><small>Temperature (°C)</small></span>
+            <span><b>{live?.source !== 'physical' || live?.humidityPercent == null ? 'Not available' : `${live.humidityPercent}%`}</b><small>Humidity (%)</small></span>
           </div>
-          {live?.timestamp && <div className="tiny muted mt-1">Last reading {timeAgo(live.timestamp)}</div>}
+          <div className="tiny muted mt-1">Last reading: {readingTimestamp(live?.timestamp)}</div>
         </div>
 
         <div className="plan-day" style={{ gridColumn: 'span 2' }}>
@@ -164,7 +169,7 @@ function WeighStation({ pantryItems, devices, toast }) {
             <button className="btn" onClick={simulate} disabled={busy === 'sim' || sensorId !== 'scale1' || live?.source === 'physical'} title="Demo fallback when no physical sensor is selected">
               <Icon name="refresh" size={13} /> Simulate sensor
             </button>
-            {!live?.online && <span className="tiny muted" style={{ alignSelf: 'center' }}>Waiting for the ESP32 - press Simulate sensor for the demo.</span>}
+            {!live?.online && <span className="tiny muted" style={{ alignSelf: 'center' }}>Waiting for the physical sensor - press Simulate sensor for the demo.</span>}
           </div>
           {result && (
             <div className="small mt-1" style={{ color: 'var(--accent)' }}>
@@ -326,14 +331,15 @@ export default function Devices() {
               </span>
             </div>
 
-            <div className="device-source-line"><span className={`chip ${d.source === 'physical' ? 'chip-ok' : ''}`}>{d.source === 'physical' ? 'PHYSICAL ESP32' : 'SIMULATOR'}</span>{d.hardwareId && <code>{d.hardwareId}</code>}</div>
-            <div className="weight-now">{(d.source === 'physical' ? d.netGrams : d.grams) != null ? `${d.source === 'physical' ? d.netGrams : d.grams} g` : '—'}</div>
+            <div className="device-source-line"><span className={`chip ${d.source === 'physical' ? 'chip-ok' : ''}`}>{d.source === 'physical' ? 'PHYSICAL SENSOR' : 'SIMULATOR'}</span>{d.hardwareId && <code>{d.hardwareId}</code>}</div>
+            <div className="tiny muted mt-2">Weight (g)</div>
+            <div className="weight-now">{(d.source === 'physical' ? d.netGrams : d.grams) != null ? `${d.source === 'physical' ? d.netGrams : d.grams} g` : 'Not available'}</div>
             <div className="device-environment-row">
-              <span><Icon name="thermometer" size={13} /><b>{d.temperatureC == null ? '—' : `${d.temperatureC}°C`}</b><small>Temperature</small></span>
-              <span><Icon name="droplet" size={13} /><b>{d.humidityPercent == null ? '—' : `${d.humidityPercent}%`}</b><small>Humidity</small></span>
+              <span><Icon name="thermometer" size={13} /><b>{d.source !== 'physical' || d.temperatureC == null ? 'Not available' : `${d.temperatureC}°C`}</b><small>Temperature (°C)</small></span>
+              <span><Icon name="droplet" size={13} /><b>{d.source !== 'physical' || d.humidityPercent == null ? 'Not available' : `${d.humidityPercent}%`}</b><small>Humidity (%)</small></span>
               <span><Icon name="scale" size={13} /><b>{d.stable ? 'Stable' : 'Unstable'}</b><small>Weight</small></span>
             </div>
-            <div className="tiny muted">Last reading: {timeAgo(d.lastReadingAt || d.lastSeen)}{d.tareGrams ? ` · tare ${d.tareGrams} g` : ''}</div>
+            <div className="tiny muted">Last reading: {readingTimestamp(d.lastReadingAt || d.lastSeen)}{d.tareGrams ? ` · tare ${d.tareGrams} g` : ''}</div>
             {d.linkedItem ? (
               <div className="small muted">linked: <b style={{ color: 'var(--text)' }}>{d.linkedItem.name}</b> · app says {Math.round(d.linkedItem.appQty)} {d.linkedItem.unit} ({d.linkedItem.state})</div>
             ) : (

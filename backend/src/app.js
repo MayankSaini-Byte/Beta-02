@@ -17,6 +17,7 @@ const memberRoutes = require('./routes/members.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const dietRoutes = require('./routes/diet.routes');
 const vendorRoutes = require('./routes/vendors.routes');
+const messRoutes = require('./routes/mess.routes');
 const { apiNotFound, errorHandler } = require('./middleware/errors');
 
 function createApp(db) {
@@ -50,6 +51,7 @@ function createApp(db) {
   app.use('/api/members', memberRoutes);
   app.use('/api/diet', dietRoutes);
   app.use('/api/vendors', vendorRoutes);
+  app.use('/api/mess-menu', messRoutes);
 
   app.use('/api', apiNotFound);
   app.use(errorHandler);

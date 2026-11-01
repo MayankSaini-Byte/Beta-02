@@ -17,15 +17,11 @@
 #include <time.h>
 #include "HX711.h"
 #include <DHT.h>
+#include "secrets.h"
 
 // -------- Local network configuration --------
-const char* WIFI_SSID = "YOUR_WIFI_NAME";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
-const char* SERVER_HOST = "YOUR_LAPTOP_LAN_IP"; // e.g. 192.168.1.25; do not use localhost
 constexpr uint16_t SERVER_PORT = 5000;
 const char* API_PATH = "/api/scale/reading";
-const char* DEVICE_KEY = "REPLACE_WITH_DEVICE_KEY_FROM_BACKEND_ENV";
-const char* DEVICE_ID = "rice-scale-01"; // must exactly match the ID paired in Devices
 
 // -------- Exact GPIO map --------
 constexpr uint8_t HX711_DT = 16;

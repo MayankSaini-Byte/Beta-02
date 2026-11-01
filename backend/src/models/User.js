@@ -23,6 +23,8 @@ const UserSchema = new Schema(
     username: { type: String, lowercase: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
+    // The account owner is the workspace admin; non-admin access can be assigned explicitly.
+    role: { type: String, enum: ['admin', 'member'], default: 'admin' },
     accountType: { type: String, enum: ['household', 'commercial', 'service'], default: 'household' },
     onboardingComplete: { type: Boolean, default: true },
     businessProfile: {
@@ -50,6 +52,14 @@ const UserSchema = new Schema(
       goal: { type: String, default: 'none' } // gym goal: none | cut | bulk | maintain
     },
     members: { type: [MemberSchema], default: [] },
+    messPoll: {
+      question: { type: String, default: '' },
+      options: [{ id: String, text: String }],
+      votes: [{ userId: String, optionId: String }],
+      closed: { type: Boolean, default: false },
+      demo: { type: Boolean, default: false },
+      updatedAt: { type: Date, default: null }
+    },
     prefs: {
       lang: { type: String, enum: ['en', 'hi'], default: 'en' },
       theme: { type: String, default: 'dark' }

@@ -147,7 +147,7 @@ router.post('/:id/tare', asyncH(async (req, res) => {
   const dev = await devices.findOne({ _id: req.params.id, ownerId: req.userId });
   if (!dev) throw httpError(404, 'Device not found');
   const r = await db.col('devicereadings').findOne({ deviceId: dev._id }, { sort: { at: -1 } });
-  if (dev.source === 'physical' && (!r || r.stable !== true || Date.now() - Date.parse(r.at) > 3000)) throw httpError(409, 'A fresh stable ESP32 reading is required before setting tare');
+  if (dev.source === 'physical' && (!r || r.stable !== true || Date.now() - Date.parse(r.at) > 3000)) throw httpError(409, 'A fresh stable sensor reading is required before setting tare');
   const dev2 = await devices.updateOne({ _id: dev._id }, { tareGrams: r ? r.grams : 0, lastSeen: new Date().toISOString() });
   if (dev.source !== 'physical') {
     const taredAt = new Date().toISOString();
@@ -165,7 +165,7 @@ router.post('/:id/simulate', asyncH(async (req, res) => {
   const devices = db.col('devices');
   const dev = await devices.findOne({ _id: req.params.id, ownerId: req.userId });
   if (!dev) throw httpError(404, 'Device not found');
-  if (dev.source === 'physical' || dev.hardwareId) throw httpError(409, 'This is a physical ESP32 sensor. Simulator readings are disabled for it.');
+  if (dev.source === 'physical' || dev.hardwareId) throw httpError(409, 'This is a physical sensor. Simulator readings are disabled for it.');
   const pantryItems = await db.col('pantries').find({ ownerId: req.userId });
   const item = dev.pantryItemId ? pantryItems.find((p) => p._id === dev.pantryItemId) : null;
 

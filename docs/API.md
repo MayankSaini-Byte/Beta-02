@@ -126,17 +126,29 @@ Pipeline details: unit regex + table (same converter as recipes), fuzzy match (D
 | POST | `/receipts/expiry/scan` | multipart `photo` → `{ok, productName, expiryDate, confidence, lowConfidence, daysLeft}`. No readable date → `{ok:false, needsManual:true}` (retake or type manually - never guesses) |
 | POST | `/receipts/expiry/confirm` | `{itemId\|name, expiryDate}` → sets the item's expiry, arms the 7-days-before reminder, audit + activity entry |
 
-## Weighing station (ESP32 + HX711 load cell)
+## Weighing station (ESP8266/ESP32 + HX711 load cell + DHT22)
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/scale/reading` | **device auth** (`x-device-key` header) `{device_id, grams, stable, temperature_c?, humidity_percent?, timestamp_ms?, reading_id?}` → 204. Valid environmental ranges: −40–80 °C, 0–100% RH. Pair `device_id` in Devices first (legacy `scale1` remains accepted); duplicate ID returns 204, stale/out-of-order returns 409, invalid readings 422 |
+| POST | `/scale/reading` | **device auth** (`x-device-key` header) `{device_id, grams, stable, temperature_c?, humidity_percent?, timestamp_ms?, reading_id?}` → 204. `device_id` must be paired in Devices first; explicit legacy `scale1` remains supported. `grams` is finite, non-negative and <50,000; `stable` is a required boolean; optional temperature is −40–80 °C and humidity is 0–100% RH. Missing/wrong key → 401; invalid fields or unknown physical ID → 400; duplicate ID → 204; stale/out-of-order → 409. Environmental fields may be omitted or null when the DHT22 has no valid sample. |
 | GET | `/scale/latest?device_id=` | JWT + commercial/service account; `{deviceId, grams, stable, temperatureC, humidityPercent, source, timestamp, online, readings, rejected}`. `device_id` defaults to legacy `scale1` |
 | POST | `/scale/simulate` | venue fallback: fabricates a fresh **server-side** stable reading |
 | POST | `/scale/stock/:id/weigh` | `{mode:"set"\|"add", deviceId?, containerWeight?}` - fresh (<3 s) + stable required (409s); uses paired device tare if containerWeight omitted; net ≥ 0 (400) → stock updated + audit |
 | GET | `/scale/reweigh/:itemId?device_id=` | expected (app) vs measured net scale weight diff + last meal deduction - the post-cook accuracy check |
 
-Physical firmware posts weights and DHT22 environment data through the same device-key-authenticated route. The server persists timestamped history using the selected database driver; readings do not change pantry stock without a user action. Firmware, exact wiring, calibration and local-network setup: [`hardware/README.md`](../hardware/README.md).
+Physical ESP8266/ESP32 firmware posts weights and DHT22 environment data through the same device-key-authenticated route. The server persists timestamped history using the selected database driver; readings do not change pantry stock without the existing user-confirmed tare / set-total / add-to-stock flow. Firmware, exact wiring, calibration and local-network setup: [`hardware/README.md`](../hardware/README.md). Express listens on `0.0.0.0` on the configured port (default `5000`) for LAN/hotspot access; the normal local frontend URL remains unchanged.
+
+Example physical payload (the two DHT22 fields can be omitted when no environment sample is available):
+
+```json
+{
+  "device_id": "kitchensync-scale-01",
+  "grams": 123.4,
+  "stable": true,
+  "temperature_c": 27.5,
+  "humidity_percent": 61.2
+}
+```
 
 ## Analytics & notifications
 

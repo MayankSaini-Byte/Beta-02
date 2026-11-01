@@ -1365,6 +1365,30 @@ h2 { font-weight: 600; }
 .mess-meal ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 0; padding: 0; list-style: none; }
 .mess-meal li { padding: 4px 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); color: var(--text); font-size: 10px; line-height: 1.3; }
 .mess-menu-footnote { margin: 0; color: var(--muted); font-size: 11px; }
+.mess-poll { display: grid; gap: 15px; padding: 18px; border: 1px solid var(--border); border-radius: 17px; background: linear-gradient(135deg, var(--panel), var(--bg-soft)); box-shadow: var(--shadow); }
+.mess-poll-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.mess-poll-header h2 { margin: 4px 0; color: var(--text); font-size: 21px; }
+.mess-poll-header p, .mess-poll-empty { color: var(--muted); font-size: 12px; }
+.mess-poll-vote h3 { margin: 0 0 12px; color: var(--text); font-size: 16px; }
+.mess-poll-demo-tag { display: inline-flex; vertical-align: 2px; padding: 3px 6px; border-radius: 999px; background: rgba(251,191,36,.12); color: var(--amber); font: 700 9px var(--font-body); letter-spacing: .06em; }
+.mess-poll-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.mess-poll-option { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; align-items: center; min-height: 58px; overflow: hidden; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); cursor: pointer; }
+.mess-poll-option.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+.mess-poll-option input { accent-color: var(--accent); }
+.mess-poll-option-copy { z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; color: var(--text); font-size: 12px; font-weight: 650; }
+.mess-poll-option-copy small { color: var(--muted); font-size: 10px; font-weight: 500; }
+.mess-poll-meter { position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: transparent; }
+.mess-poll-meter i { display: block; height: 100%; background: var(--accent); transition: width .2s ease; }
+.mess-poll-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.mess-poll-editor { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg); }
+.mess-poll-edit-options { display: grid; gap: 8px; }
+.mess-poll-edit-row { display: flex; gap: 8px; }
+.mess-poll-edit-row .input { flex: 1; min-width: 0; }
+.mess-poll-closed { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.mess-poll-closed input { accent-color: var(--accent); }
+.mess-poll-editor-actions, .mess-poll-admin-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.mess-poll-admin-actions { justify-content: flex-start; }
+.mess-poll-admin-actions .danger { color: var(--red); }
 @media (max-width: 1050px) {
   .mess-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mess-menu-hours { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -1381,4 +1405,7 @@ h2 { font-weight: 600; }
   .mess-menu-hours > span:not(.mess-hours-title) { padding-left: 8px; }
   .mess-week-grid { grid-template-columns: 1fr; gap: 9px; }
   .mess-day-card { padding: 13px; }
+  .mess-poll { padding: 14px; }
+  .mess-poll-options { grid-template-columns: 1fr; }
+  .mess-poll-footer { align-items: flex-start; flex-direction: column; }
 }
